@@ -41,10 +41,12 @@ GOAL = ("Goal: formalize a new domain, `lamp`, from my description below; apply 
 STEER_FORMALIZE = (
     "(the person) Let me give you the rules exactly; put this as the text (repl_text) and draft again (repl_formalize, empty arg), "
     "then repl_revise: catalog lamp 1, one stage main. Declare each atom on its own line: pred lit : lamp. pred dark : lamp. "
-    "pred cmd_on : lamp. pred cmd_off : lamp. pred done(on) : lamp. pred done(off) : lamp. "
+    "pred cmd_on : lamp. pred cmd_off : lamp. pred done(on) : lamp. pred done(off) : lamp. pred worn : lamp. "
     "Rules: switch_on [dyn] : dark * cmd_on -o lit * done(on). switch_off [dyn] : lit * cmd_off -o dark * done(off). "
     "on_again [dyn] : cmd_on * $lit -o done(on). off_again [dyn] : cmd_off * $dark -o done(off). "
     "Each rule has a %% line saying it in words. After the stage, the start state without a dot: #init dark 1")
+STEER_INTENT = ("(the person) Switch the lamp on in the domain with intent_on, then advance its clock "
+                "8 beats with domain_clock, and read what it says.")
 STEER_EXERCISE = ("(the person) When you exercise the lamp, switch it on first and then advance the clock "
                   "at least 8 beats before you read it.")
 NUDGE = "(the person) Continue with the next step of the loop."
@@ -69,6 +71,7 @@ def main():
     t0 = time.monotonic()
     stages, opens, turns, n_steer, nudges, denied = {}, 0, 0, 0, 0, 0
     calls = {}
+    steer2, used_intent = None, False
     done_reason = None
 
     def say(s):
@@ -84,8 +87,8 @@ def main():
         key = tool
         if tool == "catalog_apply":
             key = f"catalog_apply:{args.get('what')}"
-        if tool == "domain_open":
-            key = f"domain_open#{min(opens, 2)}"
+        if tool == "domain_open":         # a re-exercise is an open after an extension was applied
+            key = "domain_open#2" if "revise" in stages and stages["revise"].get("applied") else "domain_open#1"
         for st, keys in STAGE_OF:
             if any(key == k or (k.endswith("_") and key.startswith(k)) for k in keys):
                 return st
@@ -120,6 +123,7 @@ def main():
             args = rec.get("args") or {}
             name = rec.get("toolName")
             calls[rec.get("toolCallId")] = (name, args, None, el)
+            used_intent = used_intent or (name or "").startswith("intent_")
             say(f"→ `{name}` {json.dumps(args)}  _[{el:.0f} s]_")
         elif t == "tool_execution_end":
             name, args = calls.get(rec.get("toolCallId"), ("", {}, None, el))[:2]
@@ -127,6 +131,8 @@ def main():
                 if name == "domain_open":          # a stage counts only what went through
                     opens += 1
                 st = stage_of(name, args)
+                if name == "catalog_apply" and (args or {}).get("what") == "extension":
+                    stages.setdefault("revise", {"first": el, "last": el, "calls": 0, "turn_first": turns})["applied"] = True
                 if st:
                     s = stages.setdefault(st, {"first": el, "last": el, "calls": 0, "turn_first": turns})
                     s["last"], s["calls"] = el, s["calls"] + 1
@@ -175,6 +181,13 @@ def main():
                 n_steer += 1
                 say(f"## the person steers ({el:.0f} s)\n\n{msg}\n")
                 send({"type": "steer", "message": msg})
+        # a second steer: the domain is open but the model says no intent to it
+        if n_steer == 1 and steer2 is None and "exercise" in stages and not used_intent and \
+                turns - stages["exercise"]["turn_first"] >= 2:
+            steer2 = el
+            n_steer += 1
+            say(f"## the person steers ({el:.0f} s)\n\n{STEER_INTENT}\n")
+            send({"type": "steer", "message": STEER_INTENT})
     send({"type": "abort"})
     time.sleep(2)
     proc.stdin.close()
@@ -184,7 +197,7 @@ def main():
         proc.kill()
     total = time.monotonic() - t0
     out = {"model": a.model, "reason": done_reason, "seconds": round(total), "turns": turns, "nudges": nudges,
-           "denied": denied, "stages": stages, "explained_after": _explained(d)}
+           "denied": denied, "steers": n_steer, "stages": stages, "explained_after": _explained(d)}
     (d / "stages.json").write_text(json.dumps(out, indent=1))
     say(f"\n## end: {done_reason} — {total:.0f} s, {turns} turns, {nudges} nudges\n")
     print(json.dumps(out, indent=1))

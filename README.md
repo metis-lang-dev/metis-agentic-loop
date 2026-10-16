@@ -21,3 +21,22 @@ depends on it.
 | `prompts/loop-system.md` | the loop's system prompt (replaces pi's coding-assistant prompt) |
 | `example/` | the worked example: the lamp's world (`lamp/lamp_host.py`), the person's prose, `person.py` (the person over RPC) |
 | `test/` | `extensions.test.ts`, the extensions against stand-ins (no model): `node/bin/node --experimental-strip-types --test test/extensions.test.ts` |
+
+## Replay the worked example
+
+```
+tools/pi/setup.sh                                              # once
+ollama create metis-gemma4-e4b -f tools/pi/ollama/Modelfile    # once (from metis-agent/)
+# if `ollama ps` shows the model at "100% CPU": the system service started before the
+# NVIDIA driver was ready (it probes the GPU once, at start). Either restart it
+# (sudo systemctl restart ollama) or run a user-level server beside it:
+#   OLLAMA_HOST=127.0.0.1:11435 OLLAMA_MODELS=/usr/share/ollama/.ollama/models ollama serve &
+#   export OLLAMA_URL=http://127.0.0.1:11435
+tools/pi/example/person.py /tmp/lamp-run          # the model drives, the scripted person steers/approves (≈ 15–30 min)
+tools/pi/node/bin/node --experimental-strip-types tools/pi/example/scripted.ts /tmp/lamp-scripted
+                                                  # the loop's machinery with the model's choices scripted (≈ 5 min)
+tools/pi/loop.sh --scratch /tmp/lamp-tui          # pi's TUI: you are the person
+```
+
+Each run writes its own scratch catalog, the pi session and a transcript
+(`transcript.md` or `scripted.md`) into the directory it is given.
