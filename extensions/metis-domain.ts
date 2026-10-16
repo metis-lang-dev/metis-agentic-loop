@@ -91,6 +91,7 @@ export default function (pi: ExtensionAPI) {
 			if (!SERVED.has(t.served_by) || registered.has(`domain_${t.name}`)) continue;
 			registered.add(`domain_${t.name}`);
 			pi.registerTool({
+			executionMode: "sequential", // the tools share one process: one call at a time
 				name: `domain_${t.name}`,
 				label: `domain ${t.name}`,
 				description: `${t.description} (the domain agent; answers: ${(t.final ?? []).join(" · ")})`,
@@ -110,6 +111,7 @@ export default function (pi: ExtensionAPI) {
 			if (!NAME.test(name) || registered.has(name)) continue;
 			registered.add(name);
 			pi.registerTool({
+			executionMode: "sequential", // the tools share one process: one call at a time
 				name,
 				label: `intent ${v.verb}`,
 				description: `Say ${v.verb} to the domain (async: accepted now, the outcome comes with the clock): ${v.meaning}`,
@@ -127,6 +129,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	pi.registerTool({
+			executionMode: "sequential", // the tools share one process: one call at a time
 		name: "domain_open",
 		label: "open a domain",
 		description:
@@ -153,6 +156,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
+			executionMode: "sequential", // the tools share one process: one call at a time
 		name: "domain_clock",
 		label: "the domain's clock",
 		description: "Advance the open domain's time: beat = one host tick and the runtime until it would tick again (the world moves, outcomes and signals arrive); n beats at once (default 1).",

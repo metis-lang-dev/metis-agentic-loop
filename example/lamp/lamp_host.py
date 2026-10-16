@@ -55,7 +55,7 @@ class LampHost:
         self.beat += 1
         dos = []
         for a, n in sorted(counts.items()):
-            if a.split("(")[0] in OUTCOMES:
+            if a.split("(")[0].startswith(OUTCOMES):      # done(on), or done_on as a draft may name it
                 print(f"  [lamp beat {self.beat}] narrated {a}", file=sys.stderr)
                 dos.append(f"-{a} {n}")
         if counts.get("dark", 0) > 0:

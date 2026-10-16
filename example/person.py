@@ -38,8 +38,15 @@ STAGE_OF = [  # the loop's stages by the tool the model calls (LOOP-AGENT.md)
 GOAL = ("Goal: formalize a new domain, `lamp`, from my description below; apply it to the catalog; "
         "draft its intents; then exercise it — switch it on and let time pass (a dozen beats) — and if the lamp "
         "surprises you, explain it with an extension, apply that, and exercise again.\n\nThe lamp:\n")
-STEER = ("(the person) When you exercise the lamp, switch it on first and then advance the clock "
-         "at least 8 beats before you read it.")
+STEER_FORMALIZE = (
+    "(the person) Let me give you the rules exactly; put this as the text (repl_text) and draft again (repl_formalize, empty arg), "
+    "then repl_revise: catalog lamp 1, one stage main. Declare each atom on its own line: pred lit : lamp. pred dark : lamp. "
+    "pred cmd_on : lamp. pred cmd_off : lamp. pred done(on) : lamp. pred done(off) : lamp. "
+    "Rules: switch_on [dyn] : dark * cmd_on -o lit * done(on). switch_off [dyn] : lit * cmd_off -o dark * done(off). "
+    "on_again [dyn] : cmd_on * $lit -o done(on). off_again [dyn] : cmd_off * $dark -o done(off). "
+    "Each rule has a %% line saying it in words. After the stage, the start state without a dot: #init dark 1")
+STEER_EXERCISE = ("(the person) When you exercise the lamp, switch it on first and then advance the clock "
+                  "at least 8 beats before you read it.")
 NUDGE = "(the person) Continue with the next step of the loop."
 
 
@@ -107,29 +114,28 @@ def main():
             for c in rec["message"].get("content", []):
                 if c.get("type") == "text" and c["text"].strip():
                     say(f"**model** ({el:.0f} s): {c['text'].strip()}\n")
-            u = rec["message"].get("usage") or {}
             if rec["message"].get("stopReason") == "error" or rec["message"].get("errorMessage"):
                 say(f"_model error: {rec['message'].get('errorMessage')}_\n")
         elif t == "tool_execution_start":
             args = rec.get("args") or {}
             name = rec.get("toolName")
-            if name == "domain_open":
-                opens += 1
-            st = stage_of(name, args)
-            calls[rec.get("toolCallId")] = (name, args, st, el)
-            if st:
-                s = stages.setdefault(st, {"first": el, "last": el, "calls": 0, "turn_first": turns})
-                s["last"], s["calls"] = el, s["calls"] + 1
-                s["turn_last"] = turns
-            say(f"→ `{name}` {json.dumps(args)}  _[{st or '-'}; {el:.0f} s]_")
+            calls[rec.get("toolCallId")] = (name, args, None, el)
+            say(f"→ `{name}` {json.dumps(args)}  _[{el:.0f} s]_")
         elif t == "tool_execution_end":
+            name, args = calls.get(rec.get("toolCallId"), ("", {}, None, el))[:2]
+            if not rec.get("isError") and "refused:" not in json.dumps(rec.get("result") or {})[:200]:
+                if name == "domain_open":          # a stage counts only what went through
+                    opens += 1
+                st = stage_of(name, args)
+                if st:
+                    s = stages.setdefault(st, {"first": el, "last": el, "calls": 0, "turn_first": turns})
+                    s["last"], s["calls"] = el, s["calls"] + 1
+                    s["turn_last"] = turns
+                    say(f"  _[stage {st}]_")
             r = rec.get("result") or {}
             txt = " ".join(c.get("text", "") for c in r.get("content", []) if c.get("type") == "text")
             flag = "ERROR " if rec.get("isError") else ""
             say(f"  ← {flag}{txt[:1200]}\n")
-            name = calls.get(rec.get("toolCallId"), ("",))[0]
-            if name == "domain_open" and opens >= 2 and not rec.get("isError"):
-                pass
         elif t == "extension_ui_request":
             m = rec.get("method")
             if m in ("confirm", "select"):
@@ -141,17 +147,13 @@ def main():
                 resp = {"type": "extension_ui_response", "id": rec["id"]}
                 resp.update({"confirmed": ok} if m == "confirm" else ({"value": "Yes"} if ok else {"cancelled": True}))
                 send(resp)
-                if ok and "extensions" in title and n_steer >= 1:
-                    pass
             elif m == "notify":
                 say(f"_pi notice: {rec.get('message', '')}_\n")
         elif t == "message_end" and rec["message"].get("role") == "custom":
             say(f"**signal** ({el:.0f} s): {str(rec['message'].get('content'))[:800]}\n")
         elif t == "agent_settled":
-            if "re-exercise" in stages and stages["re-exercise"]["calls"] and any(
-                    k == "re-exercise" for k in stages) and stages.get("re-exercise", {}).get("last", 0) and \
-                    time.monotonic() - t0 - stages["re-exercise"]["last"] > 0 and _explained(d):
-                done_reason = "loop through: the re-exercise ran"
+            if "re-exercise" in stages:                 # the loop went through to the second open
+                done_reason = "the loop is through: settled after the re-exercise"
                 break
             if nudges >= a.nudges:
                 done_reason = f"the model stopped ({nudges} nudges used)"
@@ -159,11 +161,20 @@ def main():
             nudges += 1
             say(f"## the person ({el:.0f} s)\n\n{NUDGE}\n")
             send({"type": "prompt", "message": NUDGE})
-        # the one steer, mid-run: when the program is applied (before the exercise)
-        if n_steer == 0 and "apply" in stages:
-            n_steer += 1
-            say(f"## the person steers ({el:.0f} s)\n\n{STEER}\n")
-            send({"type": "steer", "message": STEER})
+        # the one steer, mid-run: at the first failed draft (the person knows the
+        # language), else once the program is applied (how to exercise it)
+        if n_steer == 0 and t == "tool_execution_end":
+            name, args = calls.get(rec.get("toolCallId"), ("", {}))[:2]
+            txt = json.dumps(rec.get("result") or {})
+            msg = None
+            if name in ("repl_formalize", "repl_revise") and ('\\"ok\\": false' in txt or "refused" in txt):
+                msg = STEER_FORMALIZE
+            elif name == "catalog_apply" and not rec.get("isError") and (args or {}).get("what") == "program":
+                msg = STEER_EXERCISE
+            if msg:
+                n_steer += 1
+                say(f"## the person steers ({el:.0f} s)\n\n{msg}\n")
+                send({"type": "steer", "message": msg})
     send({"type": "abort"})
     time.sleep(2)
     proc.stdin.close()

@@ -66,6 +66,7 @@ export default function (pi: ExtensionAPI) {
 			if (!NAME.test(verb) || registered.has(verb)) continue;
 			registered.add(verb);
 			pi.registerTool({
+			executionMode: "sequential", // the tools share one process: one call at a time
 				name: `repl_${verb}`,
 				label: `metis ${verb}`,
 				description: `metis REPL \`${verb}\`: ${words[verb] ?? NO_WORDS}`,
@@ -88,6 +89,13 @@ export default function (pi: ExtensionAPI) {
 	};
 	type Plan = { path: string; content: string; manifest?: { path: string; content: string }; reopen?: { llp: string; host: string | null } };
 
+	// intents: the manifest names its intent material (the domain agent needs `intent: {spec}`)
+	function withIntent(yamlPath: string): { path: string; content: string } | undefined {
+		const cur = existsSync(yamlPath) ? readFileSync(yamlPath, "utf8") : "";
+		if (/^intent:/m.test(cur)) return undefined;
+		return { path: yamlPath, content: `${cur}${cur && !cur.endsWith("\n") ? "\n" : ""}intent: {spec: intent.yaml}\n` };
+	}
+
 	async function plan(p: { domain: string; what: string; name?: string }): Promise<Plan> {
 		if (!NAME.test(p.domain)) throw new Error(`domain ${JSON.stringify(p.domain)}: lowercase letters, digits, _`);
 		const dir = join(catalog(), "domains", p.domain);
@@ -97,7 +105,7 @@ export default function (pi: ExtensionAPI) {
 				env: { ...process.env, METIS_CATALOG: catalog() },
 				encoding: "utf8",
 			});
-			return { path: join(dir, "intent.yaml"), content };
+			return { path: join(dir, "intent.yaml"), content, manifest: withIntent(join(dir, "domain.yaml")) };
 		}
 		const st = await op("show");
 		if (!st.candidate) throw new Error("no candidate in the REPL: formalize (or mine + formalize) first");
@@ -130,6 +138,7 @@ export default function (pi: ExtensionAPI) {
 	const plans = new Map<string, Plan>(); // toolCallId -> the plan the person approved
 
 	pi.registerTool({
+			executionMode: "sequential", // the tools share one process: one call at a time
 		name: "catalog_apply",
 		label: "apply to the catalog",
 		description:
