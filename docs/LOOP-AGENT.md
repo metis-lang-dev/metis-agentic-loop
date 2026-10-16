@@ -1,0 +1,138 @@
+# The agentic loop — an agent that refines a formalization, hosted in pi
+
+agentic-loop s-3ddb3e87 step 1 (nina, 2026-10-16; architect brief v2). The code
+is in `tools/pi/`: two thin pi extensions, the Ollama Modelfile, the launcher
+and the worked example.
+
+## The cut
+
+- **metis-loop is the person's loop**: its consoles and its UI. The agentic loop
+  shares **nothing** with it.
+- Both loops stand on the same two lower layers:
+  - the **metis REPL** (metispy), over its JSON-lines wire (`metis --json`);
+  - **metis-agent's lower half**: the domain agent (`python -m
+    metis_agent.domain_agent`), with intents J from the catalog and the REPL API T
+    from metispy's `tools.json`.
+- **Parity of capabilities.** The loop's tools are generated from those two
+  interfaces' own declarations. Nothing is written for pi that the interfaces do
+  not declare, and nothing they declare is left out.
+- The one capability neither interface has is writing into the catalog. That
+  write is `catalog_apply`, behind the person's gate.
+- **Host: pi** (`@earendil-works/pi-coding-agent`, pinned in `tools/pi/`).
+  - Built-in tools, context files, skills, prompt templates and MCP are all off.
+  - The system prompt is the loop's own (`tools/pi/prompts/loop-system.md`).
+- **Model, version 1:** Ollama with our Gemma 4 E4B GGUF (`tools/pi/ollama/`).
+  - No API keys.
+  - pi's Claude OAuth is never used.
+  - The `claude -p` route comes later, as a pi provider (`registerProvider`).
+
+## The loop as a state machine
+
+AGENT-LOOP.md's steps, each with the tools it uses and the state it leaves behind:
+
+| state | what happens | tools | leaves |
+|---|---|---|---|
+| **start** | the person gives a goal and prose (pi: a prompt) | — | the session |
+| **formalize** | the prose goes into the REPL; the program is drafted by the kernel's own formalize (its `[llm]`, the same Ollama model) and checked as a whole program | `repl_text`, `repl_formalize`, `repl_revise`, `repl_show` | a candidate that passed `revise` |
+| **apply** | the candidate is written into the catalog, gated; the REPL then serves it | `catalog_apply` what=program | `domains/<n>/<n>.llp`, plus `domain.yaml` when there is none |
+| **intents** | the person's verbs are drafted from the program's `cmd_*` atoms and `%%` lines (`tools/intents.py skeleton`, then `gen`), gated | `catalog_apply` what=intents | `intent.yaml` and `intent/` |
+| **exercise** | the domain agent runs the domain, the loop owning its clock | `domain_open`, `intent_<verb>`, `domain_clock`, `domain_state` / `why` / `events` / `ctx` / `findings` | the agent's records (`--records`) |
+| **surprise** | the world reads differently from the program; a message enters the loop | (a signal) | an open record |
+| **revise** | the missing behaviour is described, drafted as an extension, and gated as one | `repl_mine`, `repl_formalize`, `repl_gate`, `repl_show` | a candidate that passed `gate` |
+| **apply** | the extension is written, gated | `catalog_apply` what=extension | `domains/<n>/extensions/<name>.llp` |
+| **re-exercise** | the domain is opened again on the catalog as it is now; the same situation must now be explained | `domain_open`, … | an explained record, or no surprise |
+| **stop** | the person stops the run | (pi: abort) | the session file |
+
+**The person's entries, all through pi** (the TUI, or RPC for a client):
+
+| entry | pi |
+|---|---|
+| start | a prompt: the goal and the prose |
+| steer | `steer` (delivered after the current tool batch) or `follow_up` (after the run) |
+| approve | the `tool_call` gate on `catalog_apply`: `ctx.ui.confirm`, which the TUI shows and RPC forwards as `extension_ui_request` |
+| stop | `abort` |
+
+**The later autonomous entry** (step 2): a served domain spills surprise records,
+and each record starts a revise cycle without a person's prompt. Apply stays
+gated: an autonomous cycle ends at the gate and waits there for the person.
+
+**Who decides what.**
+
+- **The extensions' code** decides nothing about the domain. It:
+  - spawns and holds the two processes;
+  - generates the tools from the interfaces' declarations;
+  - passes calls through;
+  - turns unasked lines into messages;
+  - refuses an apply whose candidate has not passed its gate (`show`: `gated`).
+- **The model** decides the order of calls within a state, the text it puts into
+  the REPL, which intents to say and how long to run the clock, what a surprise
+  means, and when to move to the next state.
+- **The person** decides every write into the catalog, and steers and stops.
+
+**Budgets per cycle.** These are the person's defaults in the worked example
+(`tools/pi/example/person.py`), not enforced by the extensions:
+
+- one formalize-and-apply;
+- up to 8 "continue" nudges when the model stops early;
+- a wall-clock limit for the run (`--minutes`);
+- a clock call takes 1–50 beats.
+
+The kernel's formalize has its own repair rounds.
+
+## The extensions (`tools/pi/extensions/`)
+
+| file | process | tools | glue |
+|---|---|---|---|
+| `metis-repl.ts` | one `metis --json [llp]` per session; reopened on the applied program | `repl_<verb>` for every verb the wire's `help` lists (39 today), each with the description the wire declares; `catalog_apply`; the `tool_call` gate | see the report |
+| `metis-domain.ts` | one `domain_agent --domain <n> --case replay --consult template [--records DIR]` per `domain_open` | `domain_open`, `domain_clock`; `domain_<tool>` for every tool of `metis --tools-json` served by the domain agent (served_by repl / watch / agent: state, ctx, events, why, findings, consult, reset, explain, escalate); `intent_<verb>` for every verb of the domain's `intent.yaml` | |
+| `lib/jsonl.ts` | — | a JSON-lines child: one request, the lines until its answer, unasked lines to a callback | |
+
+pi facts relied on:
+
+- `pi.registerTool` (TypeBox schema, async `execute`) at `session_start` and later,
+  from a tool's `execute` (dynamic registration);
+- `pi.on("tool_call")` is awaited and may return `{block, reason}`;
+- `pi.sendMessage(…, {deliverAs: "steer", triggerTurn: true})` for signals;
+- `session_shutdown` closes the processes;
+- `ctx.ui.confirm` works in the TUI and over RPC;
+- `--no-builtin-tools --no-context-files --no-skills --no-prompt-templates
+  --no-mcp --no-extensions -e …` (`tools/pi/pi.sh`).
+
+**Signals.** A domain agent's unasked lines (event, quiescence, surprise) and its
+intents' late outcomes arrive while the loop runs the clock. They are returned as
+the `domain_clock` result, and a surprise also enters the loop as a message
+steered into the next turn: the model must read it before its next decision.
+A REPL `watch`'s signals do the same.
+
+**Findings against the interfaces** (not fixed in pi; the extensions show them as they are):
+
+1. The REPL wire's `help` declares descriptions for 8 of its 39 verbs (the REPL
+   API's reads and surprise verbs). The other 31, among them `text`, `formalize`,
+   `gate`, `revise`, `mine`, `show` and `run`, have descriptions as their
+   docstrings (`metis.loop.verbs`, `metis.lang.repl`) that the wire does not
+   publish.
+   - Their pi tools carry the marker "(the REPL's wire declares no description for
+     this verb — finding: metispy)".
+   - The loop's system prompt names the stage verbs.
+
+## Run it
+
+```
+tools/pi/setup.sh                                    # node v22.23.3 + pi 1.3.0 into tools/pi (once)
+ollama create metis-gemma4-e4b -f tools/pi/ollama/Modelfile     # the GPU model (…-cpu: Modelfile.cpu)
+tools/pi/loop.sh --scratch /tmp/loop                 # pi's TUI over a scratch catalog (the lamp's world)
+tools/pi/example/person.py /tmp/run1                 # the worked example, the person scripted over RPC
+```
+
+## The worked example
+
+The domain is a desk lamp: new, not in the catalog. Its world is
+`tools/pi/example/lamp/lamp_host.py`, the robot's driver that exists before any
+program. The bulb burns out after 6 lit beats; it reports `+worn` a beat before.
+
+The person's prose (`example/lamp/prose.md`) names the world's atoms, and the
+loop formalizes a program over them. Exercising it, a burn-out reads `dark`
+while the program says `lit`: the surprise. The extension `lit * worn -o dark`
+explains the next burn-out.
+
+The results are in steps/step1-report.md.

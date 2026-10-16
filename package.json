@@ -1,0 +1,8 @@
+{
+  "name": "metis-agentic-loop-host",
+  "private": true,
+  "description": "pi, pinned, as the agentic loop's host (metis-agent docs/LOOP-AGENT.md); the extensions are in extensions/",
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "1.3.0"
+  }
+}

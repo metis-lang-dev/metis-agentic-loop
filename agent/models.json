@@ -1,0 +1,14 @@
+{
+  "$schema": "https://pi.dev/schemas/models.schema.json",
+  "providers": {
+    "ollama": {
+      "baseUrl": "http://127.0.0.1:11434/v1",
+      "api": "openai-completions",
+      "apiKey": "ollama",
+      "models": [
+        { "id": "metis-gemma4-e4b", "name": "Gemma 4 E4B Q5 (metis, GPU)", "contextWindow": 16384 },
+        { "id": "metis-gemma4-e4b-cpu", "name": "Gemma 4 E4B Q5 (metis, CPU)", "contextWindow": 16384 }
+      ]
+    }
+  }
+}
