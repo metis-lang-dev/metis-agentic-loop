@@ -37,7 +37,7 @@ Leave pi with ctrl+c twice (or /quit).
 EOF
 read -r -p "Press Enter to start pi. " _
 st=0; "$HERE/loop.sh" --scratch "$DIR" || st=$?
-after="$(usage)"
+after="$(usage)" || after="$before"            # a failed read must not lose the run's status
 "$SDK_PY" -c 'import sys; b, a = map(float, sys.argv[1:3]); print("This run: %.4f USD by the key'"'"'s usage (OpenRouter may add the last calls a minute later)." % (a - b))' "$before" "$after"
 echo "The run's files: $DIR (the catalog it wrote, the pi session, records/formalize-calls.jsonl)."
 exit "$st"

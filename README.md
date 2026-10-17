@@ -78,7 +78,9 @@ The kernel's formalize was about 0.001 of each. `demo.sh` prints the key's spend
    - its intents;
    - the extension (`domains/lamp/extensions/<name>.llp`).
 
-   Read the extension's rule before you approve: its premise must name a cause. The right one is `lit * worn -o dark`. A bare `lit -o dark` makes every lit lamp go dark; refuse it and say why.
+   **Read the extension's rule before you approve: its premise must name a cause.** The right one is `lit * worn -o dark`. A bare `lit -o dark` makes every lit lamp go dark; refuse it and say why. The gate checks that the extension is well formed, not that it explains: in one of the three runs it did not (run 2's `decay_lit : lit -o dark`).
+
+   The revise step (`prompts/loop-system.md` step 6) asks for an extension whose atoms the domain already declares. That holds here: the prose declares `worn` up front. A cause the domain does not declare would need a `pred` of the extension's own; the prompt does not ask for one yet.
 4. **Exercise.** If the model only reads the lamp, steer: "switch it on with intent_on, then domain_clock 8 beats". The surprise comes at beat 6: the bulb wears out (`do +worn` at beat 4) and the lamp goes dark.
 5. **The re-exercise** opens the lamp again. The extension's rule fires (`event …: …`) and no surprise comes. The loop is through.
 
