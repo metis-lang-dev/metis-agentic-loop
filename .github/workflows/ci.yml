@@ -40,9 +40,11 @@ jobs:
       - name: Install metispy, metis-catalog and the loop SDK at its tag
         run: |
           pip install ./metispy ./metis-catalog
-          pip install "metis-loop-sdk @ git+https://github.com/metis-lang-dev/metis-loop@sdk-v0.1.0#subdirectory=sdk"
-          python -c "import metis_loop_sdk.models, metis_catalog; print('sdk', metis_loop_sdk.__version__)"
-      - name: Node and pi, pinned (setup.sh: checksummed node, npm ci from the lock)
+          # sdk-v0.1.1: the catalog CLI's intents --spec (metis-loop 21bfc02)
+          pip install "metis-loop-sdk @ git+https://github.com/metis-lang-dev/metis-loop@sdk-v0.1.1#subdirectory=sdk"
+          python -m metis_loop_sdk.catalog intents --help | grep -q -- --spec
+          python -c "import metis_loop_sdk.models, metis_loop_sdk.catalog; print('sdk', metis_loop_sdk.__version__)"
+      - name: 'Node and pi, pinned (setup.sh: checksummed node, npm ci from the lock)'
         working-directory: metis-agentic-loop
         run: ./setup.sh
       - name: Shell syntax
@@ -51,5 +53,5 @@ jobs:
       - name: node tests
         working-directory: metis-agentic-loop
         run: |
-          export REAL_METIS="$(command -v metis)" TEST_AGENT_PY="$(command -v python)"
+          export REAL_METIS="$(command -v metis)" TEST_AGENT_PY="$(command -v python)" TEST_SDK_PY="$(command -v python)"
           ./node/bin/node --experimental-strip-types --test test/extensions.test.ts

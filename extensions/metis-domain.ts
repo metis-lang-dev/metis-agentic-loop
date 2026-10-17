@@ -17,11 +17,13 @@
 //   METIS_LOOP_AGENT_DIR  metis-agent/py (the process's working directory)
 //   METIS_LOOP_METIS      metispy's `metis` (for --tools-json)
 //   METIS_CATALOG         the catalog the domains come from (a scratch copy for trials)
+//   METIS_LOOP_SDK_PY     a python with the loop SDK: a domain's intents come through its catalog CLI
 //   METIS_LOOP_RECORDS    where the domain agent sinks its records
 import { execFileSync } from "node:child_process";
 import { Type, type TSchema } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { cap, JsonlChild, type Line } from "./lib/jsonl.ts";
+import { catalog } from "./lib/catalog.ts";
 
 const SERVED = new Set(["repl", "watch", "agent"]);
 const NAME = /^[a-z][a-z0-9_]*$/;
@@ -78,11 +80,9 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	function intentMaterial(d: string): { verbs: { verb: string; meaning: string }[]; slots: Record<string, unknown> } {
-		const py = process.env.METIS_LOOP_AGENT_PY || "python3";
-		const code =
-			"import json,sys,yaml,metis_catalog as c; d=c.get(sys.argv[1]); p=d.dir/(d.intent.get('spec') or 'intent.yaml');" +
-			"y=yaml.safe_load(p.read_text()) if p.is_file() else {}; print(json.dumps({'verbs':y.get('verbs') or [],'slots':y.get('slots') or {}}))";
-		return JSON.parse(execFileSync(py, ["-c", code, d], { env: env(), encoding: "utf8" }));
+		// intent.yaml itself, read by the loop SDK's catalog CLI (none: no verbs)
+		const y = catalog(["intents", d, "--spec"]).spec ?? {};
+		return { verbs: y.verbs ?? [], slots: y.slots ?? {} };
 	}
 
 	function registerTools(d: string) {

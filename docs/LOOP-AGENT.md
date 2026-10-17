@@ -38,8 +38,8 @@ AGENT-LOOP.md's steps, each with the tools it uses and the state it leaves behin
 |---|---|---|---|
 | **start** | the person gives a goal and prose (pi: a prompt) | — | the session |
 | **formalize** | the prose goes into the REPL; the program is drafted by the kernel's own formalize (its `[llm]`, the same Ollama model) and checked as a whole program | `repl_text`, `repl_formalize`, `repl_revise`, `repl_show` | a candidate that passed `revise` |
-| **apply** | the candidate is written into the catalog, gated; the REPL then serves it | `catalog_apply` what=program | `domains/<n>/<n>.llp`, plus `domain.yaml` when there is none |
-| **intents** | the person's verbs are drafted from the program's `cmd_*` atoms and `%%` lines (`tools/intents.py skeleton`, then `gen`), gated | `catalog_apply` what=intents | `intent.yaml` and `intent/` |
+| **apply** | the candidate is written into the catalog, gated (the person sees the loop SDK's dry-run diff), through the SDK's one validated write (`python -m metis_loop_sdk.catalog apply`); the REPL then serves it | `catalog_apply` what=program | the domain's program, plus `domain.yaml` when there is none |
+| **intents** | the person's verbs are drafted from the program's `cmd_*` atoms and `%%` lines (the SDK's `catalog intents --skeleton`; `apply --intents` writes it and generates its files), gated | `catalog_apply` what=intents | `intent.yaml` and `intent/` |
 | **exercise** | the domain agent runs the domain, the loop owning its clock | `domain_open`, `intent_<verb>`, `domain_clock`, `domain_state` / `why` / `events` / `ctx` / `findings` | the agent's records (`--records`) |
 | **surprise** | the world reads differently from the program; a message enters the loop | (a signal) | an open record |
 | **revise** | the missing behaviour is described, drafted as an extension, and gated as one | `repl_mine`, `repl_formalize`, `repl_gate`, `repl_show` | a candidate that passed `gate` |

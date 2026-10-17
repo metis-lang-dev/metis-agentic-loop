@@ -5,7 +5,7 @@
 //   node/bin/node --experimental-strip-types --test test/extensions.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -46,6 +46,7 @@ function env(gated: boolean) {
 	Object.assign(process.env, {
 		METIS_CATALOG: cat,
 		METIS_LOOP_METIS: join(HERE, "stub", "metis"),
+		METIS_LOOP_SDK_PY: process.env.TEST_SDK_PY ?? join(PKGS, ".venv", "bin", "python"), // the loop SDK's catalog CLI
 		REAL_METIS: process.env.REAL_METIS ?? join(PKGS, ".venv", "bin", "metis"),
 		STUB_LOG: join(cat, "stub.log"),
 		STUB_GATED: gated ? "1" : "0",
@@ -93,6 +94,39 @@ test("metis-repl: the apply gate — no person, a refusal, an ungated candidate 
 	await q.emit("session_start", {}, ui(true));
 	assert.match((await q.emit("tool_call", call("d"), ui(true))).reason, /not passed the gate/);
 	await q.emit("session_shutdown", {}, {});
+});
+
+test("metis-repl: catalog_apply through the loop SDK — the gate shows its dry-run diff; an extension, then intents drafted and generated", async () => {
+	const cat = env(true);
+	// the intent generator the SDK runs on the catalog (loop.sh's scratch copies it the same way)
+	cpSync(join(PKGS, "metis-catalog", "tools"), join(cat, "tools"), { recursive: true });
+	const d = join(cat, "domains", "lamp");
+	writeFileSync(join(d, "lamp.llp"), "catalog lamp 1.\npred cmd_switch_on : lamp.\n");
+	writeFileSync(join(d, "domain.yaml"), "program: lamp.llp\n");
+	const p = fakePi();
+	repl(p.api);
+	await p.emit("session_start", {}, ui(true));
+	const shown: string[] = [];
+	const watch = { hasUI: true, ui: { confirm: async (t: string, b: string) => (shown.push(`${t}\n${b}`), true), notify: () => {} } };
+	const ext = { toolName: "catalog_apply", toolCallId: "e", input: { domain: "lamp", what: "extension", name: "dimmer" } };
+	assert.equal(await p.emit("tool_call", ext, watch), undefined);
+	assert.match(shown[0], /domains\/lamp\/extensions\/dimmer\.llp \(new\)[\s\S]*\+\+\+ b\/domains\/lamp\/extensions\/dimmer\.llp[\s\S]*\+catalog lamp 1\./);
+	assert.ok(!existsSync(join(d, "extensions", "dimmer.llp")));                   // the dry run wrote nothing
+	const e = await p.tools.get("catalog_apply").execute("e", ext.input);
+	assert.match(e.content[0].text, /applied: domains\/lamp\/extensions\/dimmer\.llp\./);
+	assert.match(readFileSync(join(d, "extensions", "dimmer.llp"), "utf8"), /^catalog lamp 1\./);
+	const it = { toolName: "catalog_apply", toolCallId: "i", input: { domain: "lamp", what: "intents" } };
+	assert.equal(await p.emit("tool_call", it, watch), undefined);
+	assert.match(shown[1], /domains\/lamp\/intent\.yaml \(new\)[\s\S]*SWITCH_ON/);
+	const i = await p.tools.get("catalog_apply").execute("i", it.input);
+	assert.deepEqual([...i.details.written].sort(), ["domains/lamp/domain.yaml", "domains/lamp/intent.yaml",
+		"domains/lamp/intent/lamp-prompt.txt", "domains/lamp/intent/lamp-spoken.txt", "domains/lamp/intent/lamp.gbnf"]);
+	assert.match(readFileSync(join(d, "domain.yaml"), "utf8"), /^program: lamp\.llp\nintent: \{spec: intent\.yaml\}\n$/);
+	assert.match(readFileSync(join(d, "intent", "lamp.gbnf"), "utf8"), /SWITCH_ON/);
+	// the SDK's refusal reaches the person's gate as the reason
+	const bad = { toolName: "catalog_apply", toolCallId: "x", input: { domain: "nosuch", what: "intents" } };
+	assert.match((await p.emit("tool_call", bad, watch)).reason, /catalog intents: .*nosuch/);
+	await p.emit("session_shutdown", {}, {});
 });
 
 test("metis-domain: J from intent.yaml, T from tools.json, the clock; a surprise is steered in", async () => {

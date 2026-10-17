@@ -25,7 +25,7 @@ const model = process.env.MODEL ?? "metis-gemma4-e4b";
 const cat = join(dir, "catalog");
 if (!existsSync(join(cat, "domains"))) {
 	mkdirSync(join(cat, "domains", "lamp"), { recursive: true });
-	for (const d of ["tools", "metis_catalog"]) cpSync(join(PKGS, "metis-catalog", d), join(cat, d), { recursive: true });
+	cpSync(join(PKGS, "metis-catalog", "tools"), join(cat, "tools"), { recursive: true }); // the intent generator the SDK runs on it
 	cpSync(join(PKGS, "metis-catalog", "domains", "plant"), join(cat, "domains", "plant"), { recursive: true });
 	cpSync(join(HERE, "lamp", "lamp_host.py"), join(cat, "domains", "lamp", "lamp_host.py"));
 }
@@ -37,7 +37,7 @@ Object.assign(process.env, {
 	METIS_CONFIG: conf,
 	METIS_LOOP_LLP: join(cat, "domains", "plant", "plant.llp"),
 	METIS_LOOP_METIS: join(PKGS, ".venv", "bin", "metis"),
-	METIS_LOOP_PYTHON: join(AGENT, "py", ".venv", "bin", "python"),
+	METIS_LOOP_SDK_PY: sdkPy,
 	METIS_LOOP_AGENT_PY: join(AGENT, "py", ".venv", "bin", "python"),
 	METIS_LOOP_AGENT_DIR: join(AGENT, "py"),
 	METIS_LOOP_RECORDS: join(dir, "records"),
