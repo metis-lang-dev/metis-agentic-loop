@@ -30,7 +30,8 @@ if (!existsSync(join(cat, "domains"))) {
 	cpSync(join(HERE, "lamp", "lamp_host.py"), join(cat, "domains", "lamp", "lamp_host.py"));
 }
 const conf = join(dir, "metis.toml");
-writeFileSync(conf, `[llm]\nendpoint = "command:python3 ${join(PI, "ollama", "generate.py")} --model ${model} --url ${ollama}"\n`);
+const sdkPy = process.env.METIS_LOOP_SDK_PY ?? join(PKGS, ".venv", "bin", "python"); // the loop SDK's model adapters
+writeFileSync(conf, `[llm]\nendpoint = "command:${sdkPy} -m metis_loop_sdk.models ollama-command --model ${model} --url ${ollama}"\n`);
 Object.assign(process.env, {
 	METIS_CATALOG: cat,
 	METIS_CONFIG: conf,

@@ -9,6 +9,7 @@ depends on it.
 | Node | v22.23.3 (2026-09-23; pi needs >= 22.19) | `node/` (gitignored) | `setup.sh`: nodejs.org tarball, SHA-256 checked against SHASUMS256.txt |
 | pi | `@earendil-works/pi-coding-agent` 1.3.0 | `node_modules/` (gitignored) | `setup.sh`: `npm ci --ignore-scripts` from `package-lock.json` (integrity hashes) |
 | Ollama | 0.24.0 (the host's service) | — | its built-in Gemma 4 renderer and parser |
+| the loop SDK | metis-loop `sdk/` (`metis_loop_sdk.models`) | the packages venv (`METIS_LOOP_SDK_PY`, default `../.venv/bin/python`) | `pip install -e ../metis-loop/sdk`: the kernel's formalize through its Ollama command face (thinking off), and the GPU probe |
 | model | our Gemma 4 E4B Q5_K_M GGUF (`go/models/gemma4/`) | Ollama: `metis-gemma4-e4b`, `metis-gemma4-e4b-cpu` | `ollama create … -f ollama/Modelfile` (`Modelfile.cpu`: `num_gpu 0`) |
 
 | file | what |
@@ -27,7 +28,8 @@ depends on it.
 ```
 tools/pi/setup.sh                                              # once
 ollama create metis-gemma4-e4b -f tools/pi/ollama/Modelfile    # once (from metis-agent/)
-# if `ollama ps` shows the model at "100% CPU": the system service started before the
+# loop.sh probes the server first (python -m metis_loop_sdk.models ollama-probe --model M --load)
+# and warns when the model runs on the CPU: the system service started before the
 # NVIDIA driver was ready (it probes the GPU once, at start). Either restart it
 # (sudo systemctl restart ollama) or run a user-level server beside it:
 #   OLLAMA_HOST=127.0.0.1:11435 OLLAMA_MODELS=/usr/share/ollama/.ollama/models ollama serve &

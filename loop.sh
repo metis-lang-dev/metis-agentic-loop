@@ -38,11 +38,25 @@ if [ "$OLLAMA_URL" != http://127.0.0.1:11434 ]; then       # pi's provider at th
   sed "s#http://127.0.0.1:11434#$OLLAMA_URL#" "$HERE/agent/models.json" > "$AD/models.json"
   export PI_CODING_AGENT_DIR="$AD"
 fi
-# the kernel's formalize on the same model, thinking off (ollama/generate.py, the
-# kernel's command: backend; its own ollama backend lets Gemma 4 think for minutes)
+# the loop SDK's python (metis_loop_sdk: the model adapters)
+SDK_PY="${METIS_LOOP_SDK_PY:-$PKGS/.venv/bin/python}"
+"$SDK_PY" -c "import metis_loop_sdk.models" 2>/dev/null || {
+  echo "no loop SDK in $SDK_PY: $SDK_PY -m pip install -e $PKGS/metis-loop/sdk (or set METIS_LOOP_SDK_PY)" >&2; exit 1; }
+# the server serves the model on the GPU? (the SDK's probe; a system service started
+# before the GPU driver serves CPU only, silently). It loads the model, as the run would.
+case "$MODEL" in
+  ollama/*-cpu) ;;
+  ollama/*) "$SDK_PY" -m metis_loop_sdk.models ollama-probe --url "$OLLAMA_URL" --model "${MODEL#ollama/}" --load \
+              > "${TMPDIR:-/tmp}/metis-loop-probe.json" || {
+              echo "loop.sh: $(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["why"])' \
+                "${TMPDIR:-/tmp}/metis-loop-probe.json")" >&2; } ;;
+esac
+# the kernel's formalize on the same model, thinking off (the SDK's ollama command
+# face through the kernel's command: backend; its own ollama backend lets Gemma 4
+# think for minutes)
 CONF="${METIS_CONFIG:-$(mktemp -t metis-loop-XXXX.toml)}"
-[ -s "$CONF" ] || printf '[llm]\nendpoint = "command:python3 %s/ollama/generate.py --model %s --url %s"\n' \
-  "$HERE" "${MODEL#ollama/}" "$OLLAMA_URL" > "$CONF"
+[ -s "$CONF" ] || printf '[llm]\nendpoint = "command:%s -m metis_loop_sdk.models ollama-command --model %s --url %s"\n' \
+  "$SDK_PY" "${MODEL#ollama/}" "$OLLAMA_URL" > "$CONF"
 export METIS_CONFIG="$CONF"
 export METIS_LOOP_METIS="${METIS_LOOP_METIS:-$PKGS/.venv/bin/metis}"
 export METIS_LOOP_PYTHON="${METIS_LOOP_PYTHON:-$AGENT/py/.venv/bin/python}"
