@@ -9,8 +9,8 @@ and the worked example.
 - **metis-loop is the person's loop**: its consoles and its UI. The agentic loop
   shares **nothing** with its human loop. Code that has to stay the same in every
   consumer is metis-loop's SDK (`metis_loop_sdk`, loop-sdk s-9aabd5a0): this loop
-  uses its model adapters (the kernel's formalize on Ollama, thinking off; the GPU
-  probe).
+  uses its model adapters (the kernel's formalize on Ollama or, through the
+  OpenAI-compatible face, on OpenRouter, thinking off either way; the GPU probe).
 - Both loops stand on the same two lower layers:
   - the **metis REPL** (metispy), over its JSON-lines wire (`metis --json`);
   - **metis-agent's lower half**: the domain agent (`python -m
@@ -37,7 +37,7 @@ AGENT-LOOP.md's steps, each with the tools it uses and the state it leaves behin
 | state | what happens | tools | leaves |
 |---|---|---|---|
 | **start** | the person gives a goal and prose (pi: a prompt) | — | the session |
-| **formalize** | the prose goes into the REPL; the program is drafted by the kernel's own formalize (its `[llm]`, the same Ollama model) and checked as a whole program | `repl_text`, `repl_formalize`, `repl_revise`, `repl_show` | a candidate that passed `revise` |
+| **formalize** | the prose goes into the REPL; the program is drafted by the kernel's own formalize (its `[llm]`: the driver's model, or `FORMALIZE_MODEL`) and checked as a whole program | `repl_text`, `repl_formalize`, `repl_revise`, `repl_show` | a candidate that passed `revise` |
 | **apply** | the candidate is written into the catalog, gated (the person sees the loop SDK's dry-run diff), through the SDK's one validated write (`python -m metis_loop_sdk.catalog apply`); the REPL then serves it | `catalog_apply` what=program | the domain's program, plus `domain.yaml` when there is none |
 | **intents** | the person's verbs are drafted from the program's `cmd_*` atoms and `%%` lines (the SDK's `catalog intents --skeleton`; `apply --intents` writes it and generates its files), gated | `catalog_apply` what=intents | `intent.yaml` and `intent/` |
 | **exercise** | the domain agent runs the domain, the loop owning its clock | `domain_open`, `intent_<verb>`, `domain_clock`, `domain_state` / `why` / `events` / `ctx` / `findings` | the agent's records (`--records`) |

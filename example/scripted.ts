@@ -7,6 +7,9 @@
 //
 //   OLLAMA_URL=http://127.0.0.1:11434 node/bin/node --experimental-strip-types \
 //     example/scripted.ts DIR          (from this checkout)
+//   MODEL=openrouter/deepseek/deepseek-v4-pro …   formalize on OpenRouter instead (the loop
+//     SDK's OpenAI-compatible face; OPENROUTER_API_KEY from the environment; the calls and
+//     their cost in DIR/records/formalize-calls.jsonl)
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,7 +34,10 @@ if (!existsSync(join(cat, "domains"))) {
 }
 const conf = join(dir, "metis.toml");
 const sdkPy = process.env.METIS_LOOP_SDK_PY ?? join(PKGS, ".venv", "bin", "python"); // the loop SDK's model adapters
-writeFileSync(conf, `[llm]\nendpoint = "command:${sdkPy} -m metis_loop_sdk.models ollama-command --model ${model} --url ${ollama}"\n`);
+const face = model.startsWith("openrouter/")
+	? `openai-command --base-url https://openrouter.ai/api/v1 --model ${model.slice("openrouter/".length)} --log ${join(dir, "records", "formalize-calls.jsonl")}`
+	: `ollama-command --model ${model} --url ${ollama}`;
+writeFileSync(conf, `[llm]\nendpoint = "command:${sdkPy} -m metis_loop_sdk.models ${face}"\n`);
 Object.assign(process.env, {
 	METIS_CATALOG: cat,
 	METIS_CONFIG: conf,
@@ -44,7 +50,7 @@ Object.assign(process.env, {
 });
 
 const log = join(dir, "scripted.md");
-writeFileSync(log, `# the loop, scripted (${new Date().toISOString()}; formalize on ${model} at ${ollama})\n\n`);
+writeFileSync(log, `# the loop, scripted (${new Date().toISOString()}; formalize on ${model}${model.startsWith("openrouter/") ? "" : " at " + ollama})\n\n`);
 const say = (s: string) => {
 	appendFileSync(log, s + "\n");
 	console.log(s);

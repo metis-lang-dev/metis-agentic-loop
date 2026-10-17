@@ -9,8 +9,11 @@
 #   MODEL=ollama/metis-gemma4-e4b (default; …-cpu: no layer on the GPU), or another pi
 #         provider's model, e.g. openrouter/qwen/qwen3-235b-a22b-2507 (its key from the
 #         environment only: OPENROUTER_API_KEY; agent/models.json caps and routes it)
-#   FORMALIZE_MODEL=the Ollama model the kernel's formalize drafts with (default: MODEL's
-#         when MODEL is ollama/…, else metis-gemma4-e4b — formalize stays local)
+#   FORMALIZE_MODEL=the model the kernel's formalize drafts with: an Ollama model (NAME or
+#         ollama/NAME), or openrouter/<id> (the loop SDK's OpenAI-compatible command face,
+#         reasoning off, 2048 tokens, data_collection deny; its calls and their cost in
+#         $METIS_LOOP_RECORDS/formalize-calls.jsonl). Default: MODEL's, thinking suffix
+#         dropped (formalize where the driver is); metis-gemma4-e4b for any other provider
 #   OLLAMA_URL=http://127.0.0.1:11434 (default; another Ollama server, e.g. a user-level one
 #              when the system service started before the GPU driver and serves CPU only)
 #   pi args: e.g. --mode rpc (a client is the person), or none (pi's TUI)
@@ -37,8 +40,12 @@ fi
 : "${METIS_CATALOG:?set METIS_CATALOG or use --scratch DIR}"
 MODEL="${MODEL:-ollama/metis-gemma4-e4b}"
 case "$MODEL" in
-  ollama/*) FORMALIZE_MODEL="${FORMALIZE_MODEL:-${MODEL#ollama/}}" ;;
-  *)        FORMALIZE_MODEL="${FORMALIZE_MODEL:-metis-gemma4-e4b}" ;;
+  ollama/*|openrouter/*) FORMALIZE_MODEL="${FORMALIZE_MODEL:-$MODEL}" ;;
+  *)                     FORMALIZE_MODEL="${FORMALIZE_MODEL:-metis-gemma4-e4b}" ;;
+esac
+FORMALIZE_MODEL="${FORMALIZE_MODEL#ollama/}"
+case "$FORMALIZE_MODEL" in                                       # pi's thinking suffix is pi's, not the model's
+  *:off|*:minimal|*:low|*:medium|*:high|*:xhigh|*:max) FORMALIZE_MODEL="${FORMALIZE_MODEL%:*}" ;;
 esac
 OLLAMA_URL="${OLLAMA_URL:-http://127.0.0.1:11434}"
 if [ "$OLLAMA_URL" != http://127.0.0.1:11434 ]; then       # pi's provider at that server, for this run
@@ -53,22 +60,31 @@ SDK_PY="${METIS_LOOP_SDK_PY:-$PKGS/.venv/bin/python}"
 # the server serves the model on the GPU? (the SDK's probe; a system service started
 # before the GPU driver serves CPU only, silently). It loads the model, as the run would.
 case "$FORMALIZE_MODEL" in
-  *-cpu) ;;
+  *-cpu|openrouter/*) ;;
   *) "$SDK_PY" -m metis_loop_sdk.models ollama-probe --url "$OLLAMA_URL" --model "$FORMALIZE_MODEL" --load \
               > "${TMPDIR:-/tmp}/metis-loop-probe.json" || {
               echo "loop.sh: $(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["why"])' \
                 "${TMPDIR:-/tmp}/metis-loop-probe.json")" >&2; } ;;
 esac
-# the kernel's formalize on FORMALIZE_MODEL, thinking off (the SDK's ollama command
-# face through the kernel's command: backend; its own ollama backend lets Gemma 4
-# think for minutes)
+# the kernel's formalize on FORMALIZE_MODEL, thinking off: the SDK's ollama command
+# face (the kernel's own ollama backend lets Gemma 4 think for minutes), or its
+# OpenAI-compatible one on OpenRouter (the key reaches it through the environment:
+# pi's, then the REPL's), through the kernel's command: backend
 CONF="${METIS_CONFIG:-$(mktemp -t metis-loop-XXXX.toml)}"
 if grep -q "ollama/generate.py" "$CONF" 2>/dev/null; then          # an old config: that adapter is the SDK's now
   echo "loop.sh: $CONF names ollama/generate.py, which is gone: unset METIS_CONFIG (loop.sh writes one) or use" \
        "command:$SDK_PY -m metis_loop_sdk.models ollama-command --model M" >&2; exit 1
 fi
-[ -s "$CONF" ] || printf '[llm]\nendpoint = "command:%s -m metis_loop_sdk.models ollama-command --model %s --url %s"\n' \
-  "$SDK_PY" "$FORMALIZE_MODEL" "$OLLAMA_URL" > "$CONF"
+if [ ! -s "$CONF" ]; then
+  case "$FORMALIZE_MODEL" in
+    openrouter/*)
+      : "${OPENROUTER_API_KEY:?formalize on $FORMALIZE_MODEL: OPENROUTER_API_KEY from the environment}"
+      FACE="openai-command --base-url https://openrouter.ai/api/v1 --model ${FORMALIZE_MODEL#openrouter/}"
+      FACE="$FACE${METIS_LOOP_RECORDS:+ --log $METIS_LOOP_RECORDS/formalize-calls.jsonl}" ;;
+    *) FACE="ollama-command --model $FORMALIZE_MODEL --url $OLLAMA_URL" ;;
+  esac
+  printf '[llm]\nendpoint = "command:%s -m metis_loop_sdk.models %s"\n' "$SDK_PY" "$FACE" > "$CONF"
+fi
 export METIS_CONFIG="$CONF"
 export METIS_LOOP_METIS="${METIS_LOOP_METIS:-$PKGS/.venv/bin/metis}"
 export METIS_LOOP_SDK_PY="$SDK_PY"                    # the extensions' catalog: the loop SDK's catalog CLI
