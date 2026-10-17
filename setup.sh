@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# tools/pi/setup.sh — the agentic loop's host, pinned (agentic-loop s-3ddb3e87):
+# setup.sh — the agentic loop's host, pinned (agentic-loop s-3ddb3e87):
 # Node and pi are installed HERE (node/, node_modules/; gitignored), from the
 # pinned releases below, checksums verified. Nothing global, no repo dependency.
 #
-#   tools/pi/setup.sh          install (idempotent)
-#   tools/pi/setup.sh --check  verify the installed versions
+#   ./setup.sh          install (idempotent)
+#   ./setup.sh --check  verify the installed versions
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 NODE_VERSION=v22.23.3                   # >= 22.19 (pi's engines); released 2026-09-23

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """The worked example's person (docs/LOOP-AGENT.md "The worked example"): a pi
 RPC client that plays the person of the agentic loop, so the run is repeatable.
-It starts the loop (tools/pi/loop.sh --mode rpc) on a scratch catalog, gives
+It starts the loop (loop.sh --mode rpc) on a scratch catalog, gives
 the goal and the prose, steers once, answers every apply confirmation, says
 "continue" when the model stops before the loop is through (each one counted,
 the person's turn), and stops the run (abort) at the end or at the budget.
 
-    tools/pi/example/person.py DIR [--model ollama/metis-gemma4-e4b] [--minutes 60]
+    example/person.py DIR [--model ollama/metis-gemma4-e4b] [--minutes 60]
         [--deny-first]       refuse the first apply (the gate holds: the model must ask)
 
 DIR gets the scratch catalog, the pi session, and:

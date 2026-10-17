@@ -1,10 +1,10 @@
 # The agentic loop's model, version 1 (agentic-loop s-3ddb3e87): our Gemma 4 E4B
-# GGUF (go/models, the Q5_K_M the specialist's S1b ran), imported — nothing is
+# GGUF (metis-agent go/models, the Q5_K_M the specialist's S1b ran), imported — nothing is
 # downloaded. The chat template and the tool-call grammar are Ollama's built-in
 # Gemma 4 renderer and parser (ollama 0.24.0: Gemma4Renderer / Gemma4Parser), the
 # same turn format the go adapter and py/metis_agent/gemma4.py write by hand.
-#   ollama create metis-gemma4-e4b -f tools/pi/ollama/Modelfile        (from metis-agent/)
-FROM ../../../go/models/gemma4/gemma-4-E4B-it-Q5_K_M.gguf
+#   ollama create metis-gemma4-e4b -f ollama/Modelfile        (from this checkout; the GGUF is metis-agent's)
+FROM ../../metis-agent/go/models/gemma4/gemma-4-E4B-it-Q5_K_M.gguf
 RENDERER gemma4
 PARSER gemma4
 PARAMETER num_ctx 16384

@@ -12,7 +12,7 @@
 // Unasked lines (event, quiescence, surprise) and the intents' late outcomes
 // come with the clock; a surprise also enters the loop as a message.
 //
-// Environment (tools/pi/loop.sh sets them):
+// Environment (loop.sh sets them):
 //   METIS_LOOP_AGENT_PY   metis-agent/py's python (the domain agent's venv)
 //   METIS_LOOP_AGENT_DIR  metis-agent/py (the process's working directory)
 //   METIS_LOOP_METIS      metispy's `metis` (for --tools-json)

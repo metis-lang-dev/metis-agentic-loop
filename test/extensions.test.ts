@@ -2,7 +2,7 @@
 // generated from the interfaces' declarations, the apply gate holds (no person,
 // a refusal, an ungated candidate) and writes only what the person approved,
 // and a domain's surprise enters the loop as a steered message.
-//   tools/pi/node/bin/node --experimental-strip-types --test tools/pi/test/extensions.test.ts
+//   node/bin/node --experimental-strip-types --test test/extensions.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -13,7 +13,10 @@ import repl from "../extensions/metis-repl.ts";
 import domain from "../extensions/metis-domain.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const AGENT = join(HERE, "..", "..", "..");
+// the sibling checkouts (metis-agentic-loop beside metispy's venv and metis-agent);
+// CI points these at its own installs
+const PKGS = join(HERE, "..", "..");
+const AGENT = join(PKGS, "metis-agent");
 
 function fakePi() {
 	const tools = new Map<string, any>();
@@ -43,7 +46,7 @@ function env(gated: boolean) {
 	Object.assign(process.env, {
 		METIS_CATALOG: cat,
 		METIS_LOOP_METIS: join(HERE, "stub", "metis"),
-		REAL_METIS: join(AGENT, "..", ".venv", "bin", "metis"),
+		REAL_METIS: process.env.REAL_METIS ?? join(PKGS, ".venv", "bin", "metis"),
 		STUB_LOG: join(cat, "stub.log"),
 		STUB_GATED: gated ? "1" : "0",
 		METIS_LOOP_LLP: "",
@@ -99,7 +102,7 @@ test("metis-domain: J from intent.yaml, T from tools.json, the clock; a surprise
 	writeFileSync(join(d, "domain.yaml"), "program: lamp.llp\nintent: {spec: intent.yaml}\n");
 	writeFileSync(join(d, "intent.yaml"), "verbs:\n- verb: SWITCH_ON\n  meaning: The person switches the lamp on.\nslots: {}\n");
 	Object.assign(process.env, {
-		METIS_LOOP_AGENT_PY: join(AGENT, "py", ".venv", "bin", "python"),
+		METIS_LOOP_AGENT_PY: process.env.TEST_AGENT_PY ?? join(AGENT, "py", ".venv", "bin", "python"),
 		METIS_LOOP_AGENT_DIR: join(HERE, "stub"),
 	});
 	const p = fakePi();

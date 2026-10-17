@@ -1,13 +1,16 @@
 # The agentic loop — an agent that refines a formalization, hosted in pi
 
 agentic-loop s-3ddb3e87 step 1 (nina, 2026-10-16; architect brief v2). The code
-is in `tools/pi/`: two thin pi extensions, the Ollama Modelfile, the launcher
+is in this repository (metis-agentic-loop): two thin pi extensions, the Ollama Modelfile, the launcher
 and the worked example.
 
 ## The cut
 
 - **metis-loop is the person's loop**: its consoles and its UI. The agentic loop
-  shares **nothing** with it.
+  shares **nothing** with its human loop. Code that has to stay the same in every
+  consumer is metis-loop's SDK (`metis_loop_sdk`, loop-sdk s-9aabd5a0): this loop
+  uses its model adapters (the kernel's formalize on Ollama, thinking off; the GPU
+  probe).
 - Both loops stand on the same two lower layers:
   - the **metis REPL** (metispy), over its JSON-lines wire (`metis --json`);
   - **metis-agent's lower half**: the domain agent (`python -m
@@ -18,13 +21,14 @@ and the worked example.
   not declare, and nothing they declare is left out.
 - The one capability neither interface has is writing into the catalog. That
   write is `catalog_apply`, behind the person's gate.
-- **Host: pi** (`@earendil-works/pi-coding-agent`, pinned in `tools/pi/`).
+- **Host: pi** (`@earendil-works/pi-coding-agent`, pinned in this repository).
   - Built-in tools, context files, skills, prompt templates and MCP are all off.
-  - The system prompt is the loop's own (`tools/pi/prompts/loop-system.md`).
-- **Model, version 1:** Ollama with our Gemma 4 E4B GGUF (`tools/pi/ollama/`).
+  - The system prompt is the loop's own (`prompts/loop-system.md`).
+- **Model, version 1:** Ollama with our Gemma 4 E4B GGUF (`ollama/`).
   - No API keys.
   - pi's Claude OAuth is never used.
-  - The `claude -p` route comes later, as a pi provider (`registerProvider`).
+  - The `claude -p` route for pi is postponed with pi as the principal loop
+    (loop-sdk brief v2).
 
 ## The loop as a state machine
 
@@ -70,7 +74,7 @@ gated: an autonomous cycle ends at the gate and waits there for the person.
 - **The person** decides every write into the catalog, and steers and stops.
 
 **Budgets per cycle.** These are the person's defaults in the worked example
-(`tools/pi/example/person.py`), not enforced by the extensions:
+(`example/person.py`), not enforced by the extensions:
 
 - one formalize-and-apply;
 - up to 8 "continue" nudges when the model stops early;
@@ -79,7 +83,7 @@ gated: an autonomous cycle ends at the gate and waits there for the person.
 
 The kernel's formalize has its own repair rounds.
 
-## The extensions (`tools/pi/extensions/`)
+## The extensions (`extensions/`)
 
 | file | process | tools | glue |
 |---|---|---|---|
@@ -96,7 +100,7 @@ pi facts relied on:
 - `session_shutdown` closes the processes;
 - `ctx.ui.confirm` works in the TUI and over RPC;
 - `--no-builtin-tools --no-context-files --no-skills --no-prompt-templates
-  --no-mcp --no-extensions -e …` (`tools/pi/pi.sh`).
+  --no-mcp --no-extensions -e …` (`pi.sh`).
 
 **Signals.** A domain agent's unasked lines (event, quiescence, surprise) and its
 intents' late outcomes arrive while the loop runs the clock. They are returned as
@@ -118,16 +122,16 @@ A REPL `watch`'s signals do the same.
 ## Run it
 
 ```
-tools/pi/setup.sh                                    # node v22.23.3 + pi 1.3.0 into tools/pi (once)
-ollama create metis-gemma4-e4b -f tools/pi/ollama/Modelfile     # the GPU model (…-cpu: Modelfile.cpu)
-tools/pi/loop.sh --scratch /tmp/loop                 # pi's TUI over a scratch catalog (the lamp's world)
-tools/pi/example/person.py /tmp/run1                 # the worked example, the person scripted over RPC
+./setup.sh                                    # node v22.23.3 + pi 1.3.0 into this checkout (once)
+ollama create metis-gemma4-e4b -f ollama/Modelfile     # the GPU model (…-cpu: Modelfile.cpu)
+./loop.sh --scratch /tmp/loop                 # pi's TUI over a scratch catalog (the lamp's world)
+./example/person.py /tmp/run1                 # the worked example, the person scripted over RPC
 ```
 
 ## The worked example
 
 The domain is a desk lamp: new, not in the catalog. Its world is
-`tools/pi/example/lamp/lamp_host.py`, the robot's driver that exists before any
+`example/lamp/lamp_host.py`, the robot's driver that exists before any
 program. The bulb burns out after 6 lit beats; it reports `+worn` a beat before.
 
 The person's prose (`example/lamp/prose.md`) names the world's atoms, and the

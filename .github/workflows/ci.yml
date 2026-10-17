@@ -1,0 +1,55 @@
+name: ci
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The extensions against stand-ins (no model, no GPU): test/extensions.test.ts.
+  # The stand-in metis forwards --tools-json to the real metispy; the domain
+  # tools read the catalog through the python the domain agent would use.
+  node:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: metis-agentic-loop
+      - name: Checkout metispy (public)
+        uses: actions/checkout@v4
+        with:
+          repository: metis-lang-dev/metispy
+          path: metispy
+      - name: Checkout metis-catalog (public)
+        uses: actions/checkout@v4
+        with:
+          repository: metis-lang-dev/metis-catalog
+          path: metis-catalog
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install metispy, metis-catalog and the loop SDK at its tag
+        run: |
+          pip install ./metispy ./metis-catalog
+          pip install "metis-loop-sdk @ git+https://github.com/metis-lang-dev/metis-loop@sdk-v0.1.0#subdirectory=sdk"
+          python -c "import metis_loop_sdk.models, metis_catalog; print('sdk', metis_loop_sdk.__version__)"
+      - name: Node and pi, pinned (setup.sh: checksummed node, npm ci from the lock)
+        working-directory: metis-agentic-loop
+        run: ./setup.sh
+      - name: Shell syntax
+        working-directory: metis-agentic-loop
+        run: bash -n setup.sh pi.sh loop.sh
+      - name: node tests
+        working-directory: metis-agentic-loop
+        run: |
+          export REAL_METIS="$(command -v metis)" TEST_AGENT_PY="$(command -v python)"
+          ./node/bin/node --experimental-strip-types --test test/extensions.test.ts

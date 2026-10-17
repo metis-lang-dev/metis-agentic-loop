@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# tools/pi/loop.sh — the agentic loop (docs/LOOP-AGENT.md): pi with the two
+# loop.sh — the agentic loop (docs/LOOP-AGENT.md): pi with the two
 # metis extensions over a catalog, on Ollama's Gemma 4 E4B.
 #
-#   tools/pi/loop.sh --scratch DIR [pi args...]   a scratch catalog in DIR (made once: the
+#   loop.sh --scratch DIR [pi args...]   a scratch catalog in DIR (made once: the
 #                                                 catalog's tools + the example's world), the trial
-#   METIS_CATALOG=… tools/pi/loop.sh [pi args...] an existing catalog (the person's)
+#   METIS_CATALOG=… loop.sh [pi args...] an existing catalog (the person's)
 #
 #   MODEL=ollama/metis-gemma4-e4b (default; …-cpu: no layer on the GPU)
 #   OLLAMA_URL=http://127.0.0.1:11434 (default; another Ollama server, e.g. a user-level one
@@ -12,8 +12,8 @@
 #   pi args: e.g. --mode rpc (a client is the person), or none (pi's TUI)
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-AGENT="$(cd "$HERE/../.." && pwd)"                 # metis-agent
-PKGS="$(cd "$AGENT/.." && pwd)"                     # the sibling checkouts
+PKGS="$(cd "$HERE/.." && pwd)"                      # the sibling checkouts
+AGENT="${METIS_AGENT:-$PKGS/metis-agent}"           # the domain agent's checkout
 if [ "${1:-}" = --scratch ]; then
   S="$(mkdir -p "$2" && cd "$2" && pwd)"; shift 2
   if [ ! -d "$S/catalog/domains" ]; then
@@ -55,6 +55,10 @@ esac
 # face through the kernel's command: backend; its own ollama backend lets Gemma 4
 # think for minutes)
 CONF="${METIS_CONFIG:-$(mktemp -t metis-loop-XXXX.toml)}"
+if grep -q "ollama/generate.py" "$CONF" 2>/dev/null; then          # an old config: that adapter is the SDK's now
+  echo "loop.sh: $CONF names ollama/generate.py, which is gone: unset METIS_CONFIG (loop.sh writes one) or use" \
+       "command:$SDK_PY -m metis_loop_sdk.models ollama-command --model M" >&2; exit 1
+fi
 [ -s "$CONF" ] || printf '[llm]\nendpoint = "command:%s -m metis_loop_sdk.models ollama-command --model %s --url %s"\n' \
   "$SDK_PY" "${MODEL#ollama/}" "$OLLAMA_URL" > "$CONF"
 export METIS_CONFIG="$CONF"

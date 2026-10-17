@@ -1,8 +1,29 @@
-# tools/pi — the agentic loop's host (docs/LOOP-AGENT.md)
+# metis-agentic-loop — the agentic loop, hosted in pi (docs/LOOP-AGENT.md)
 
 pi hosts the agentic loop. The two metis extensions give it its tools. Everything
-pi needs is pinned and installed here, not globally, and no part of the repo
-depends on it.
+pi needs is pinned and installed here, not globally.
+
+**Status: experimental.** The loop for AI agents, beside metis-loop (the loop for
+people). Its integration as the principal agentic loop is postponed (loop-sdk
+s-9aabd5a0, brief v2); this repository is the pi experiment's home. It moved out of
+metis-agent (`tools/pi/`, `docs/LOOP-AGENT.md`) with its history.
+
+**Where it sits.** A checkout beside the other metis-lang-dev checkouts:
+
+```
+perotheia-packages/            (any parent directory)
+  .venv/                       metispy (`metis`), metis-catalog, metis-loop-sdk
+  metis-agentic-loop/          this repository
+  metis-agent/                 the domain agent (py/.venv) and the Gemma 4 GGUF (go/models/)
+  metis-catalog/               the catalog the scratch runs copy
+  metis-loop/sdk/              the loop SDK (pip install -e metis-loop/sdk)
+```
+
+At run time the loop drives two processes over their JSON-lines wires,
+`metis --json` (metispy) and `python -m metis_agent.domain_agent` (metis-agent), and
+shares no code with them. Code it shares is the loop SDK's (`metis_loop_sdk`,
+pinned by tag in CI): the model adapters today. `METIS_AGENT` points elsewhere for
+metis-agent; `METIS_LOOP_SDK_PY`, `METIS_LOOP_METIS` and `METIS_LOOP_AGENT_PY` for the pythons.
 
 | what | version | where | how |
 |---|---|---|---|
@@ -10,7 +31,7 @@ depends on it.
 | pi | `@earendil-works/pi-coding-agent` 1.3.0 | `node_modules/` (gitignored) | `setup.sh`: `npm ci --ignore-scripts` from `package-lock.json` (integrity hashes) |
 | Ollama | 0.24.0 (the host's service) | — | its built-in Gemma 4 renderer and parser |
 | the loop SDK | metis-loop `sdk/` (`metis_loop_sdk.models`) | the packages venv (`METIS_LOOP_SDK_PY`, default `../.venv/bin/python`) | `pip install -e ../metis-loop/sdk`: the kernel's formalize through its Ollama command face (thinking off), and the GPU probe |
-| model | our Gemma 4 E4B Q5_K_M GGUF (`go/models/gemma4/`) | Ollama: `metis-gemma4-e4b`, `metis-gemma4-e4b-cpu` | `ollama create … -f ollama/Modelfile` (`Modelfile.cpu`: `num_gpu 0`) |
+| model | our Gemma 4 E4B Q5_K_M GGUF (metis-agent `go/models/gemma4/`) | Ollama: `metis-gemma4-e4b`, `metis-gemma4-e4b-cpu` | `ollama create … -f ollama/Modelfile` (`Modelfile.cpu`: `num_gpu 0`) |
 
 | file | what |
 |---|---|
@@ -26,18 +47,18 @@ depends on it.
 ## Replay the worked example
 
 ```
-tools/pi/setup.sh                                              # once
-ollama create metis-gemma4-e4b -f tools/pi/ollama/Modelfile    # once (from metis-agent/)
+./setup.sh                                              # once
+ollama create metis-gemma4-e4b -f ollama/Modelfile    # once (from this checkout)
 # loop.sh probes the server first (python -m metis_loop_sdk.models ollama-probe --model M --load)
 # and warns when the model runs on the CPU: the system service started before the
 # NVIDIA driver was ready (it probes the GPU once, at start). Either restart it
 # (sudo systemctl restart ollama) or run a user-level server beside it:
 #   OLLAMA_HOST=127.0.0.1:11435 OLLAMA_MODELS=/usr/share/ollama/.ollama/models ollama serve &
 #   export OLLAMA_URL=http://127.0.0.1:11435
-tools/pi/example/person.py /tmp/lamp-run          # the model drives, the scripted person steers/approves (≈ 15–30 min)
-tools/pi/node/bin/node --experimental-strip-types tools/pi/example/scripted.ts /tmp/lamp-scripted
+./example/person.py /tmp/lamp-run          # the model drives, the scripted person steers/approves (≈ 15–30 min)
+./node/bin/node --experimental-strip-types example/scripted.ts /tmp/lamp-scripted
                                                   # the loop's machinery with the model's choices scripted (≈ 5 min)
-tools/pi/loop.sh --scratch /tmp/lamp-tui          # pi's TUI: you are the person
+./loop.sh --scratch /tmp/lamp-tui          # pi's TUI: you are the person
 ```
 
 Each run writes its own scratch catalog, the pi session and a transcript

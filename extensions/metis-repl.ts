@@ -7,7 +7,7 @@
 // write the wire never makes: catalog_apply, behind pi's tool_call gate (the
 // person approves every write into the catalog).
 //
-// Environment (tools/pi/loop.sh sets them):
+// Environment (loop.sh sets them):
 //   METIS_LOOP_METIS   the metis console script (metispy's `metis`)
 //   METIS_CATALOG      the catalog catalog_apply writes into (a scratch copy for trials)
 //   METIS_CONFIG       the kernel's dot file ([llm]: formalize's endpoint)

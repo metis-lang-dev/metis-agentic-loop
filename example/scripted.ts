@@ -5,8 +5,8 @@
 // formalize on Ollama. It separates the structural bar (the loop runs through, the calls
 // round-trip, the gates hold) from the model's quality, which person.py measures.
 //
-//   OLLAMA_URL=http://127.0.0.1:11434 tools/pi/node/bin/node --experimental-strip-types \
-//     tools/pi/example/scripted.ts DIR          (from metis-agent/)
+//   OLLAMA_URL=http://127.0.0.1:11434 node/bin/node --experimental-strip-types \
+//     example/scripted.ts DIR          (from this checkout)
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,8 +15,8 @@ import domain from "../extensions/metis-domain.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PI = join(HERE, "..");
-const AGENT = join(PI, "..", "..");
-const PKGS = join(AGENT, "..");
+const PKGS = join(PI, "..");                                     // the sibling checkouts
+const AGENT = process.env.METIS_AGENT ?? join(PKGS, "metis-agent"); // the domain agent's checkout
 const dir = resolve(process.argv[2] ?? "/tmp/loop-scripted");
 const ollama = process.env.OLLAMA_URL ?? "http://127.0.0.1:11434";
 const model = process.env.MODEL ?? "metis-gemma4-e4b";
