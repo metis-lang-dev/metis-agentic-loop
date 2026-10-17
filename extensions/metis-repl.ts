@@ -32,13 +32,36 @@ export default function (pi: ExtensionAPI) {
 	const registered = new Set<string>();
 	const metis = () => process.env.METIS_LOOP_METIS || "metis";
 
+	function spawn(llp: string | null, host: string | null): JsonlChild {
+		const args = ["--json", ...(host ? ["--host", host] : []), ...(llp ? [llp] : [])];
+		return new JsonlChild(metis(), args, { env: process.env, cwd: llp ? dirname(llp) : process.cwd() }, (l) => signal(l));
+	}
+
 	function open(llp: string | null, host: string | null) {
 		repl?.close();
-		const args = ["--json", ...(host ? ["--host", host] : []), ...(llp ? [llp] : [])];
-		repl = new JsonlChild(metis(), args, { env: process.env, cwd: llp ? dirname(llp) : process.cwd() }, (l) =>
-			signal(l),
-		);
+		repl = spawn(llp, host);
 		served = llp;
+	}
+
+	// serve another program; the REPL that was keeps serving (and keeps its
+	// candidate) until the new one answers — a program metis cannot load leaves
+	// the loop a REPL, not a dead process. null on success, else why it failed.
+	async function reopen(llp: string, host: string | null): Promise<string | null> {
+		const old = repl, oldServed = served;
+		repl = spawn(llp, host);
+		served = llp;
+		try {
+			const h = await op("help"); // metis answers a program it cannot load with ok:false (and exits)
+			if (h.ok === false) throw new Error(JSON.stringify(h.findings ?? h));
+			await registerVerbs();
+			old?.close();
+			return null;
+		} catch (e) {
+			repl.close();
+			repl = old;
+			served = oldServed;
+			return (e as Error).message;
+		}
 	}
 
 	// a watch's signal lines (event / quiescence / surprise), unasked: into the loop
@@ -155,9 +178,10 @@ export default function (pi: ExtensionAPI) {
 				// the program and its host as the catalog's loader names them
 				const d = catalog(["get", pl.domain]);
 				const host = d.host && /\.py:/.test(d.host) ? join(dirname(d.program), d.host) : d.host;
-				open(d.program, host);
-				await registerVerbs();
-				after = ` The REPL now serves ${d.program}${host ? " with its host" : ""}.`;
+				const failed = await reopen(d.program, host);
+				after = failed
+					? ` But metis cannot load the program it wrote: ${failed.slice(0, 600)}. The REPL still serves what it served before, its candidate kept: repair the text, formalize, check and apply again.`
+					: ` The REPL now serves ${d.program}${host ? " with its host" : ""}.`;
 			}
 			return {
 				content: [{ type: "text", text: `applied: ${written.length ? written.join(", ") : "nothing (the catalog has it already)"}.${after}` }],

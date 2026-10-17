@@ -81,6 +81,7 @@ def main():
     steer2, used_intent = None, False
     done_reason = None
     usage = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "usd": 0.0, "requests": 0, "length_stops": 0}
+    dead = 0
     fails = {"fake_calls_in_text": 0, "fake_call_messages": 0, "unknown_tools": 0, "wrong_layer": 0}
 
     def say(s):
@@ -163,6 +164,10 @@ def main():
             txt = " ".join(c.get("text", "") for c in r.get("content", []) if c.get("type") == "text")
             if rec.get("isError") and re.search(r"(?i)tool .*not found|unknown tool|not found", txt):
                 fails["unknown_tools"] += 1
+            dead = dead + 1 if rec.get("isError") and "has exited" in txt else 0
+            if dead >= 8:          # every call answers from a dead process: stop paying for the run
+                done_reason = "a tool's process is dead (8 calls in a row)"
+                break
             if name == "repl_do" and re.match(r"\s*cmd_", str((args or {}).get("arg", ""))):
                 fails["wrong_layer"] += 1           # a command atom said in the REPL, not an intent to the domain
             flag = "ERROR " if rec.get("isError") else ""

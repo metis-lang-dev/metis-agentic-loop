@@ -9,6 +9,10 @@ llp = [a for a in sys.argv[1:] if a.endswith(".llp")]
 with open(os.environ["STUB_LOG"], "a") as f:
     f.write(json.dumps({"argv": sys.argv[1:]}) + "\n")
 gated = os.environ.get("STUB_GATED") == "1"
+if llp and os.environ.get("STUB_UNLOADABLE") == "1":   # a program metis cannot load (metispy: '#init dark 1.')
+    sys.stdin.readline()
+    print(json.dumps({"ok": False, "findings": ["invalid literal for int() with base 10: '1.'"]}), flush=True)
+    sys.exit(1)
 for line in sys.stdin:
     r = json.loads(line); op = r.get("op")
     if op == "help":

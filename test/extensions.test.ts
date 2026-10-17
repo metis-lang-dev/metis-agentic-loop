@@ -96,6 +96,26 @@ test("metis-repl: the apply gate — no person, a refusal, an ungated candidate 
 	await q.emit("session_shutdown", {}, {});
 });
 
+test("metis-repl: a written program metis cannot load leaves the REPL that was serving, and says so", async () => {
+	const cat = env(true);
+	const p = fakePi();
+	repl(p.api);
+	await p.emit("session_start", {}, ui(true));
+	process.env.STUB_UNLOADABLE = "1";
+	try {
+		const call = { toolName: "catalog_apply", toolCallId: "u", input: { domain: "lamp", what: "program" } };
+		assert.equal(await p.emit("tool_call", call, ui(true)), undefined);
+		const r = await p.tools.get("catalog_apply").execute("u", { domain: "lamp", what: "program" });
+		assert.match(r.content[0].text, /applied: .*lamp\.llp.*metis cannot load the program it wrote: .*invalid literal.*still serves what it served before/);
+		assert.ok(existsSync(join(cat, "domains", "lamp", "lamp.llp")));   // the write stands: the catalog is the person's
+		const s = await p.tools.get("repl_state").execute("s", { arg: "" });   // the old REPL answers
+		assert.equal(s.content[0].text, "state");
+	} finally {
+		delete process.env.STUB_UNLOADABLE;
+		await p.emit("session_shutdown", {}, {});
+	}
+});
+
 test("metis-repl: catalog_apply through the loop SDK — the gate shows its dry-run diff; an extension, then intents drafted and generated", async () => {
 	const cat = env(true);
 	// the intent generator the SDK runs on the catalog (loop.sh's scratch copies it the same way)
