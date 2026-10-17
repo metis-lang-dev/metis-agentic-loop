@@ -40,10 +40,12 @@ jobs:
       - name: Install metispy, metis-catalog and the loop SDK at its tag
         run: |
           pip install ./metispy ./metis-catalog
-          # sdk-v0.1.1: the catalog CLI's intents --spec (metis-loop 21bfc02)
-          pip install "metis-loop-sdk @ git+https://github.com/metis-lang-dev/metis-loop@sdk-v0.1.1#subdirectory=sdk"
+          # sdk-v0.1.2: the catalog CLI's intents --spec (metis-loop 21bfc02) and the
+          # OpenAI-compatible face formalize uses on OpenRouter (metis-loop 7932969)
+          pip install "metis-loop-sdk @ git+https://github.com/metis-lang-dev/metis-loop@sdk-v0.1.2#subdirectory=sdk"
           python -m metis_loop_sdk.catalog intents --help | grep -q -- --spec
-          python -c "import metis_loop_sdk.models, metis_loop_sdk.catalog; print('sdk', metis_loop_sdk.__version__)"
+          python -m metis_loop_sdk.models openai-command --help > /dev/null
+          python -c "import metis_loop_sdk.models.openai, metis_loop_sdk.catalog; print('sdk', metis_loop_sdk.__version__)"
       - name: 'Node and pi, pinned (setup.sh: checksummed node, npm ci from the lock)'
         working-directory: metis-agentic-loop
         run: ./setup.sh
