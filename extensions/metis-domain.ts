@@ -54,21 +54,47 @@ export default function (pi: ExtensionAPI) {
 		);
 	}
 
+	function render(l: Line): string | null {
+		if ("ack" in l) return null;
+		if (l.clock) return `clock: beat ${l.beat}${l.over ? " (the day is over)" : ""}`;
+		const k = l.kind ?? l.signal;
+		if (k === "read") return String(l.output ?? "");
+		if (k === "result") return `result ${l.id ?? ""} ${l.status}${l.reason ? ` (${l.reason})` : ""}: ${l.text ?? ""}`.trim();
+		if (k === "consult") return `consult: ${l.answer_kind} ${l.text ?? ""}`;
+		if (k === "surprise") return `SURPRISE record ${l.record}: ${JSON.stringify(l.difference)}${l.cards ? ` cards ${JSON.stringify(l.cards)}` : ""}`;
+		if (k === "quiescence")
+			// unsettled: the beat stopped at the domain agent's step cap, these rules still firing
+			return `${l.unsettled ? "UNSETTLED " : ""}quiescence${l.episode_over || l.over ? " (episode over)" : ""}${l.text ? `: ${l.text}` : ""}` +
+				(l.unsettled ? ` unsettled ${JSON.stringify(l.unsettled)}` : "");
+		if (k === "event") return `event ${l.ref?.event ?? l.name ?? ""}${l.ops ? ` ${JSON.stringify(l.ops)}` : ""}${l.text ? `: ${l.text}` : ""}`;
+		return JSON.stringify(l);
+	}
+
+	// the lines of one call in words; the same event said again (a rule that
+	// keeps firing: a capped beat sends one per step) is one line with its
+	// count and the beats it came on, where it first came
 	function summary(lines: Line[]): string {
-		return lines
-			.map((l) => {
-				if ("ack" in l) return null;
-				if (l.clock) return `clock: beat ${l.beat}${l.over ? " (the day is over)" : ""}`;
-				const k = l.kind ?? l.signal;
-				if (k === "read") return String(l.output ?? "");
-				if (k === "result") return `result ${l.id ?? ""} ${l.status}${l.reason ? ` (${l.reason})` : ""}: ${l.text ?? ""}`.trim();
-				if (k === "consult") return `consult: ${l.answer_kind} ${l.text ?? ""}`;
-				if (k === "surprise") return `SURPRISE record ${l.record}: ${JSON.stringify(l.difference)}${l.cards ? ` cards ${JSON.stringify(l.cards)}` : ""}`;
-				if (k === "quiescence") return `quiescence${l.episode_over ? " (episode over)" : ""}`;
-				if (k === "event") return `event ${l.name ?? ""}${l.ops ? ` ${JSON.stringify(l.ops)}` : ""}`;
-				return JSON.stringify(l);
+		const rows: { text: string; n: number; first?: number; last?: number }[] = [];
+		const at = new Map<string, number>();
+		for (const l of lines) {
+			const text = render(l);
+			if (!text) continue;
+			const beat = typeof l.ref?.beat === "number" ? (l.ref.beat as number) : undefined;
+			const i = (l.kind ?? l.signal) === "event" ? at.get(text) : undefined;
+			if (i !== undefined) {
+				rows[i].n++;
+				rows[i].last = beat ?? rows[i].last;
+				continue;
+			}
+			if ((l.kind ?? l.signal) === "event") at.set(text, rows.length);
+			rows.push({ text, n: 1, first: beat, last: beat });
+		}
+		return rows
+			.map((r) => {
+				if (r.n === 1) return r.text;
+				const when = r.first === undefined ? "" : r.first === r.last ? `, beat ${r.first}` : `, beats ${r.first}–${r.last}`;
+				return r.text.replace(/^(event [^\s:]*)/, `$1 fired ×${r.n}${when}`);
 			})
-			.filter((x) => x)
 			.join("\n");
 	}
 

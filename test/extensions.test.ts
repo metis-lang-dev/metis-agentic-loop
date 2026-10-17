@@ -174,3 +174,38 @@ test("metis-domain: J from intent.yaml, T from tools.json, the clock; a surprise
 	assert.match(p.messages[0].msg.content, /signals a surprise/);
 	await p.emit("session_shutdown", {}, {});
 });
+
+test("metis-domain: a beat that never settles — the clock says unsettled with its rules, the repeated events once each with a count", async () => {
+	const cat = env(true);
+	const d = join(cat, "domains", "lamp");
+	writeFileSync(join(d, "lamp.llp"), "catalog lamp 1.\n");
+	writeFileSync(join(d, "domain.yaml"), "program: lamp.llp\nintent: {spec: intent.yaml}\n");
+	writeFileSync(join(d, "intent.yaml"), "verbs:\n- verb: SWITCH_ON\n  meaning: The person switches the lamp on.\nslots: {}\n");
+	Object.assign(process.env, {
+		METIS_LOOP_AGENT_PY: process.env.TEST_AGENT_PY ?? join(AGENT, "py", ".venv", "bin", "python"),
+		METIS_LOOP_AGENT_DIR: join(HERE, "stub"),
+		STUB_SPIN: "1",
+	});
+	const p = fakePi();
+	domain(p.api);
+	try {
+		await p.tools.get("domain_open").execute("o", { domain: "lamp" });
+		const c = await p.tools.get("domain_clock").execute("k", { n: 2 });
+		const text: string = c.content[0].text;
+		assert.equal(c.details.lines.filter((l: any) => l.kind === "event").length, 400);   // the lines themselves, all kept
+		assert.deepEqual(text.split("\n"), [
+			"event persist_lit fired ×200, beat 0: The lamp stays lit.",
+			"event persist_dark fired ×200, beat 0: The lamp stays dark.",
+			"UNSETTLED quiescence: the lamp did not settle: 200 steps in one beat, and persist_dark (100), persist_lit (100) kept firing; " +
+				'the beat stopped there unsettled [["persist_dark",100],["persist_lit",100]]',
+			"clock: beat 0",
+			"UNSETTLED quiescence: the lamp did not settle: 200 steps in one beat, and persist_dark (100), persist_lit (100) kept firing; " +
+				'the beat stopped there unsettled [["persist_dark",100],["persist_lit",100]]',
+			"clock: beat 0",
+		]);
+		assert.equal(p.messages.length, 0);   // no steer: the clock's own answer carries it
+	} finally {
+		delete process.env.STUB_SPIN;
+		await p.emit("session_shutdown", {}, {});
+	}
+});

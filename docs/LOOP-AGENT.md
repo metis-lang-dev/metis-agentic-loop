@@ -108,6 +108,14 @@ the `domain_clock` result, and a surprise also enters the loop as a message
 steered into the next turn: the model must read it before its next decision.
 A REPL `watch`'s signals do the same.
 
+A program that never settles (`persist_lit : lit -o lit`) does not hang the
+clock. The domain agent stops each beat at its step cap (`BEAT_STEPS`, 200;
+metis-agent 59cc65b). The result says `UNSETTLED quiescence`, with the rules
+that kept firing (`unsettled [[rule, times], …]`), and the clock does not
+advance until the program is revised. In one `domain_clock` result, the same
+event said again is one line with its count and its beats: `event persist_dark
+fired ×200, beat 0: …`.
+
 **Findings against the interfaces** (not fixed in pi; the extensions show them as they are):
 
 1. The REPL wire's `help` declares descriptions for 8 of its 39 verbs (the REPL
