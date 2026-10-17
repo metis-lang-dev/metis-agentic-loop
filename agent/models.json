@@ -9,6 +9,13 @@
         { "id": "metis-gemma4-e4b", "name": "Gemma 4 E4B Q5 (metis, GPU)", "contextWindow": 16384 },
         { "id": "metis-gemma4-e4b-cpu", "name": "Gemma 4 E4B Q5 (metis, CPU)", "contextWindow": 16384 }
       ]
+    },
+    "openrouter": {
+      "modelOverrides": {
+        "deepseek/deepseek-v4-pro": { "maxTokens": 2048, "compat": { "openRouterRouting": { "data_collection": "deny" } } },
+        "qwen/qwen3-235b-a22b-2507": { "maxTokens": 2048, "compat": { "openRouterRouting": { "data_collection": "deny" } } },
+        "qwen/qwen3.5-9b": { "maxTokens": 2048, "compat": { "openRouterRouting": { "data_collection": "deny" } } }
+      }
     }
   }
 }

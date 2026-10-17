@@ -22,7 +22,9 @@ perotheia-packages/            (any parent directory)
 At run time the loop drives two processes over their JSON-lines wires,
 `metis --json` (metispy) and `python -m metis_agent.domain_agent` (metis-agent), and
 shares no code with them. Code it shares is the loop SDK's (`metis_loop_sdk`,
-pinned by tag in CI): the model adapters today. `METIS_AGENT` points elsewhere for
+pinned by tag in CI): the model adapters, and the catalog (the extensions read
+a domain's intents and make the one write, `catalog_apply`, through its catalog CLI:
+`python -m metis_loop_sdk.catalog … --json`). `METIS_AGENT` points elsewhere for
 metis-agent; `METIS_LOOP_SDK_PY`, `METIS_LOOP_METIS` and `METIS_LOOP_AGENT_PY` for the pythons.
 
 | what | version | where | how |
@@ -30,7 +32,8 @@ metis-agent; `METIS_LOOP_SDK_PY`, `METIS_LOOP_METIS` and `METIS_LOOP_AGENT_PY` f
 | Node | v22.23.3 (2026-09-23; pi needs >= 22.19) | `node/` (gitignored) | `setup.sh`: nodejs.org tarball, SHA-256 checked against SHASUMS256.txt |
 | pi | `@earendil-works/pi-coding-agent` 1.3.0 | `node_modules/` (gitignored) | `setup.sh`: `npm ci --ignore-scripts` from `package-lock.json` (integrity hashes) |
 | Ollama | 0.24.0 (the host's service) | — | its built-in Gemma 4 renderer and parser |
-| the loop SDK | metis-loop `sdk/` (`metis_loop_sdk.models`) | the packages venv (`METIS_LOOP_SDK_PY`, default `../.venv/bin/python`) | `pip install -e ../metis-loop/sdk`: the kernel's formalize through its Ollama command face (thinking off), and the GPU probe |
+| the loop SDK | metis-loop `sdk/` (`metis_loop_sdk.models`, `.catalog`) | the packages venv (`METIS_LOOP_SDK_PY`, default `../.venv/bin/python`) | `pip install -e ../metis-loop/sdk`: the kernel's formalize through its Ollama command face (thinking off), the GPU probe, and the catalog CLI (a domain's intents, `catalog_apply`) |
+| OpenRouter (trial) | pi's built-in provider | `MODEL=openrouter/<id>[:thinking]` | `OPENROUTER_API_KEY` from the environment only, never a file here; `agent/models.json` caps the trial's models at 2048 output tokens and routes them `data_collection: deny`; `example/openrouter_key.py` prints the key's spend (never the key). The kernel's formalize stays on Ollama (`FORMALIZE_MODEL`, default the E4B) |
 | model | our Gemma 4 E4B Q5_K_M GGUF (metis-agent `go/models/gemma4/`) | Ollama: `metis-gemma4-e4b`, `metis-gemma4-e4b-cpu` | `ollama create … -f ollama/Modelfile` (`Modelfile.cpu`: `num_gpu 0`) |
 
 | file | what |

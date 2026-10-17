@@ -8,16 +8,20 @@ the person's turn), and stops the run (abort) at the end or at the budget.
 
     example/person.py DIR [--model ollama/metis-gemma4-e4b] [--minutes 60]
         [--deny-first]       refuse the first apply (the gate holds: the model must ask)
+        [--max-usd X]        abort once the model's cost (pi's usage, the catalog's prices) passes X
 
 DIR gets the scratch catalog, the pi session, and:
     events.jsonl    every RPC record, as it came
     transcript.md   the run as read: the person, the model's words, every tool
                     call with its arguments and result (capped), the gates
-    stages.json     per stage: first/last tool call, turns, seconds
+    stages.json     per stage: first/last tool call, turns, seconds; the model's
+                    tokens and cost; the failure classes counted (fake calls in
+                    its text, calls to tools that do not exist, the wrong layer)
 """
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -50,6 +54,8 @@ STEER_INTENT = ("(the person) Switch the lamp on in the domain with intent_on, t
 STEER_EXERCISE = ("(the person) When you exercise the lamp, switch it on first and then advance the clock "
                   "at least 8 beats before you read it.")
 NUDGE = "(the person) Continue with the next step of the loop."
+# a call written into the text instead of made: Gemma's markers, a JSON call, response: blocks
+FAKE_CALL = re.compile(r"(?:response|call):\w+\{|<\|tool_response>|\{\s*\"name\"\s*:\s*\"\w+\"\s*,\s*\"(?:arguments|parameters)\"")
 
 
 def main():
@@ -59,6 +65,7 @@ def main():
     ap.add_argument("--minutes", type=float, default=60)
     ap.add_argument("--nudges", type=int, default=8)
     ap.add_argument("--deny-first", action="store_true")
+    ap.add_argument("--max-usd", type=float, default=0)
     a = ap.parse_args()
     d = a.dir.resolve()
     d.mkdir(parents=True, exist_ok=True)
@@ -73,6 +80,8 @@ def main():
     calls = {}
     steer2, used_intent = None, False
     done_reason = None
+    usage = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "usd": 0.0, "requests": 0, "length_stops": 0}
+    fails = {"fake_calls_in_text": 0, "fake_call_messages": 0, "unknown_tools": 0, "wrong_layer": 0}
 
     def say(s):
         tr.write(s + "\n")
@@ -114,9 +123,21 @@ def main():
         if t == "turn_start":
             turns += 1
         elif t == "message_end" and rec["message"].get("role") == "assistant":
+            u = rec["message"].get("usage") or {}
+            for k in ("input", "output", "cacheRead", "cacheWrite"):
+                usage[k] += u.get(k) or 0
+            usage["usd"] += (u.get("cost") or {}).get("total") or 0
+            usage["requests"] += 1
+            usage["length_stops"] += rec["message"].get("stopReason") == "length"
             for c in rec["message"].get("content", []):
                 if c.get("type") == "text" and c["text"].strip():
+                    k = len(FAKE_CALL.findall(c["text"]))
+                    fails["fake_calls_in_text"] += k
+                    fails["fake_call_messages"] += k > 0
                     say(f"**model** ({el:.0f} s): {c['text'].strip()}\n")
+            if a.max_usd and usage["usd"] > a.max_usd:
+                done_reason = f"the cost passed {a.max_usd} USD"
+                break
             if rec["message"].get("stopReason") == "error" or rec["message"].get("errorMessage"):
                 say(f"_model error: {rec['message'].get('errorMessage')}_\n")
         elif t == "tool_execution_start":
@@ -140,6 +161,10 @@ def main():
                     say(f"  _[stage {st}]_")
             r = rec.get("result") or {}
             txt = " ".join(c.get("text", "") for c in r.get("content", []) if c.get("type") == "text")
+            if rec.get("isError") and re.search(r"(?i)tool .*not found|unknown tool|not found", txt):
+                fails["unknown_tools"] += 1
+            if name == "repl_do" and re.match(r"\s*cmd_", str((args or {}).get("arg", ""))):
+                fails["wrong_layer"] += 1           # a command atom said in the REPL, not an intent to the domain
             flag = "ERROR " if rec.get("isError") else ""
             say(f"  ← {flag}{txt[:1200]}\n")
         elif t == "extension_ui_request":
@@ -197,7 +222,8 @@ def main():
         proc.kill()
     total = time.monotonic() - t0
     out = {"model": a.model, "reason": done_reason, "seconds": round(total), "turns": turns, "nudges": nudges,
-           "denied": denied, "steers": n_steer, "stages": stages, "explained_after": _explained(d)}
+           "denied": denied, "steers": n_steer, "stages": stages, "explained_after": _explained(d),
+           "usage": usage, "fails": fails}
     (d / "stages.json").write_text(json.dumps(out, indent=1))
     say(f"\n## end: {done_reason} — {total:.0f} s, {turns} turns, {nudges} nudges\n")
     print(json.dumps(out, indent=1))

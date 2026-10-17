@@ -6,7 +6,11 @@
 #                                                 catalog's tools + the example's world), the trial
 #   METIS_CATALOG=… loop.sh [pi args...] an existing catalog (the person's)
 #
-#   MODEL=ollama/metis-gemma4-e4b (default; …-cpu: no layer on the GPU)
+#   MODEL=ollama/metis-gemma4-e4b (default; …-cpu: no layer on the GPU), or another pi
+#         provider's model, e.g. openrouter/qwen/qwen3-235b-a22b-2507 (its key from the
+#         environment only: OPENROUTER_API_KEY; agent/models.json caps and routes it)
+#   FORMALIZE_MODEL=the Ollama model the kernel's formalize drafts with (default: MODEL's
+#         when MODEL is ollama/…, else metis-gemma4-e4b — formalize stays local)
 #   OLLAMA_URL=http://127.0.0.1:11434 (default; another Ollama server, e.g. a user-level one
 #              when the system service started before the GPU driver and serves CPU only)
 #   pi args: e.g. --mode rpc (a client is the person), or none (pi's TUI)
@@ -18,7 +22,7 @@ if [ "${1:-}" = --scratch ]; then
   S="$(mkdir -p "$2" && cd "$2" && pwd)"; shift 2
   if [ ! -d "$S/catalog/domains" ]; then
     mkdir -p "$S/catalog/domains"
-    cp -r "$PKGS/metis-catalog/tools" "$PKGS/metis-catalog/metis_catalog" "$S/catalog/"
+    cp -r "$PKGS/metis-catalog/tools" "$S/catalog/"                     # the intent generator the SDK runs on it
     cp -r "$PKGS/metis-catalog/domains/plant" "$S/catalog/domains/"       # a known domain beside the new one
     rm -rf "$S/catalog/domains/plant/records" "$S/catalog/domains/plant/build"
     mkdir -p "$S/catalog/domains/lamp"
@@ -32,6 +36,10 @@ if [ "${1:-}" = --scratch ]; then
 fi
 : "${METIS_CATALOG:?set METIS_CATALOG or use --scratch DIR}"
 MODEL="${MODEL:-ollama/metis-gemma4-e4b}"
+case "$MODEL" in
+  ollama/*) FORMALIZE_MODEL="${FORMALIZE_MODEL:-${MODEL#ollama/}}" ;;
+  *)        FORMALIZE_MODEL="${FORMALIZE_MODEL:-metis-gemma4-e4b}" ;;
+esac
 OLLAMA_URL="${OLLAMA_URL:-http://127.0.0.1:11434}"
 if [ "$OLLAMA_URL" != http://127.0.0.1:11434 ]; then       # pi's provider at that server, for this run
   AD="$(mktemp -d -t metis-loop-agent-XXXX)"
@@ -44,14 +52,14 @@ SDK_PY="${METIS_LOOP_SDK_PY:-$PKGS/.venv/bin/python}"
   echo "no loop SDK in $SDK_PY: $SDK_PY -m pip install -e $PKGS/metis-loop/sdk (or set METIS_LOOP_SDK_PY)" >&2; exit 1; }
 # the server serves the model on the GPU? (the SDK's probe; a system service started
 # before the GPU driver serves CPU only, silently). It loads the model, as the run would.
-case "$MODEL" in
-  ollama/*-cpu) ;;
-  ollama/*) "$SDK_PY" -m metis_loop_sdk.models ollama-probe --url "$OLLAMA_URL" --model "${MODEL#ollama/}" --load \
+case "$FORMALIZE_MODEL" in
+  *-cpu) ;;
+  *) "$SDK_PY" -m metis_loop_sdk.models ollama-probe --url "$OLLAMA_URL" --model "$FORMALIZE_MODEL" --load \
               > "${TMPDIR:-/tmp}/metis-loop-probe.json" || {
               echo "loop.sh: $(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["why"])' \
                 "${TMPDIR:-/tmp}/metis-loop-probe.json")" >&2; } ;;
 esac
-# the kernel's formalize on the same model, thinking off (the SDK's ollama command
+# the kernel's formalize on FORMALIZE_MODEL, thinking off (the SDK's ollama command
 # face through the kernel's command: backend; its own ollama backend lets Gemma 4
 # think for minutes)
 CONF="${METIS_CONFIG:-$(mktemp -t metis-loop-XXXX.toml)}"
@@ -60,11 +68,11 @@ if grep -q "ollama/generate.py" "$CONF" 2>/dev/null; then          # an old conf
        "command:$SDK_PY -m metis_loop_sdk.models ollama-command --model M" >&2; exit 1
 fi
 [ -s "$CONF" ] || printf '[llm]\nendpoint = "command:%s -m metis_loop_sdk.models ollama-command --model %s --url %s"\n' \
-  "$SDK_PY" "${MODEL#ollama/}" "$OLLAMA_URL" > "$CONF"
+  "$SDK_PY" "$FORMALIZE_MODEL" "$OLLAMA_URL" > "$CONF"
 export METIS_CONFIG="$CONF"
 export METIS_LOOP_METIS="${METIS_LOOP_METIS:-$PKGS/.venv/bin/metis}"
-export METIS_LOOP_PYTHON="${METIS_LOOP_PYTHON:-$AGENT/py/.venv/bin/python}"
+export METIS_LOOP_SDK_PY="$SDK_PY"                    # the extensions' catalog: the loop SDK's catalog CLI
 export METIS_LOOP_AGENT_PY="${METIS_LOOP_AGENT_PY:-$AGENT/py/.venv/bin/python}"
 export METIS_LOOP_AGENT_DIR="$AGENT/py"
-case "$MODEL" in *-cpu) export METIS_LOOP_CUDA="" ;; esac   # the domain agent too
+case "$FORMALIZE_MODEL" in *-cpu) export METIS_LOOP_CUDA="" ;; esac   # the domain agent too
 exec "$HERE/pi.sh" --model "$MODEL" --system-prompt "$HERE/prompts/loop-system.md" "$@"
