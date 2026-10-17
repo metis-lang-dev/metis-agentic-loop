@@ -47,6 +47,48 @@ metis-agent; `METIS_LOOP_SDK_PY`, `METIS_LOOP_METIS` and `METIS_LOOP_AGENT_PY` f
 | `example/` | the worked example: the lamp's world (`lamp/lamp_host.py`), the person's prose, `person.py` (the person over RPC) |
 | `test/` | `extensions.test.ts`, the extensions against stand-ins (no model): `node/bin/node --experimental-strip-types --test test/extensions.test.ts` |
 
+## The demo
+
+One command, in pi's TUI, where you are the person. **DeepSeek V4 Pro** (`deepseek/deepseek-v4-pro` on OpenRouter) both drives pi and drafts through the kernel's formalize:
+- reasoning off;
+- at most 2048 output tokens per call;
+- providers that keep no prompts (`data_collection: deny`).
+
+```
+./setup.sh                                   # once
+export OPENROUTER_API_KEY=…                  # or: set -a; . ~/.config/metis/openrouter.env; set +a
+./demo.sh                                    # a fresh ~/lamp-demo-<date>-<time>; or ./demo.sh DIR
+```
+
+**What it costs:** about **0.01–0.04 USD** and 2–5 minutes per run. Three measured runs (agentic-loop s-3ddb3e87 step 2), by the key's usage:
+
+| run | cost | time |
+|---|---|---|
+| 1 | 0.037 USD | 4.3 min (it stopped short and was nudged on) |
+| 2 | 0.013 USD | 1.6 min |
+| 3 | 0.012 USD | 2.0 min |
+
+The kernel's formalize was about 0.001 of each. `demo.sh` prints the key's spend before and after; it never prints the key.
+
+**What you do:**
+1. **Paste the prompt** `demo.sh` prints (the goal and the lamp's prose; also in `DIR/prompt.md`).
+2. **The model formalizes.** If its draft keeps failing, steer: type the rules as `example/person.py`'s `STEER_FORMALIZE` gives them. Typing while the model works sends a steer, which pi delivers before its next step.
+3. **The apply gate asks** before every write to the catalog: a box `Apply to the catalog …: domains/lamp/lamp.llp (new)…?` with the diff. You approve or refuse it. It asks three times:
+   - the program;
+   - its intents;
+   - the extension (`domains/lamp/extensions/<name>.llp`).
+
+   Read the extension's rule before you approve: its premise must name a cause. The right one is `lit * worn -o dark`. A bare `lit -o dark` makes every lit lamp go dark; refuse it and say why.
+4. **Exercise.** If the model only reads the lamp, steer: "switch it on with intent_on, then domain_clock 8 beats". The surprise comes at beat 6: the bulb wears out (`do +worn` at beat 4) and the lamp goes dark.
+5. **The re-exercise** opens the lamp again. The extension's rule fires (`event …: …`) and no surprise comes. The loop is through.
+
+Leave pi with ctrl+c twice. `DIR` keeps:
+- the catalog the run wrote;
+- the pi session;
+- `records/formalize-calls.jsonl` (each formalize call, its tokens and cost).
+
+`MODEL=openrouter/<id>:off ./demo.sh` runs another OpenRouter model; formalize follows it.
+
 ## Replay the worked example
 
 ```
