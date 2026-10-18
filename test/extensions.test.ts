@@ -380,3 +380,25 @@ test("metis-domain: a beat that never settles — the clock says unsettled with 
 		await p.emit("session_shutdown", {}, {});
 	}
 });
+
+// a program-only domain (agent-no-intent s-7fd29000): a fiction world with no intent.yaml opens
+// through domain_open on the real domain agent, with no intent tool; its clock beats and the
+// REPL reads answer. Scripted, no model; skipped where metis-agent is not installed
+test("metis-domain: a domain with no intents (love_triangle) opens with no verbs, beats and reads", { skip: !hasAgent && "no metis-agent" }, async () => {
+	env(false);
+	const cat = join(PKGS, "metis-catalog");
+	Object.assign(process.env, {
+		METIS_CATALOG: cat, METIS_LOOP_METIS: process.env.REAL_METIS!, METIS_LOOP_RECORDS: "",
+		METIS_LOOP_AGENT_PY: AGENT_PY, METIS_LOOP_AGENT_DIR: join(AGENT, "py"),
+	});
+	assert.ok(!existsSync(join(cat, "domains", "love_triangle", "intent.yaml")));
+	const p = fakePi();
+	domain(p.api);
+	const o = await p.tools.get("domain_open").execute("o", { domain: "love_triangle" });
+	assert.match(o.content[0].text, /love_triangle is open at beat 0; 0 intent verb\(s\)/);
+	assert.ok(![...p.tools.keys()].some((t) => t.startsWith("intent_")));
+	const c = await p.tools.get("domain_clock").execute("k", { n: 2 });
+	assert.match(c.content[0].text, /jealousy/);
+	assert.match((await p.tools.get("domain_state").execute("s", { domain: "love_triangle" })).content[0].text, /anger\(/);
+	await p.emit("session_shutdown", {}, {});
+});
