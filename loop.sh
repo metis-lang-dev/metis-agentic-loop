@@ -71,7 +71,8 @@ if [ "${1:-}" = --scratch ]; then
   if [ -n "$SEED" ]; then
     export METIS_LOOP_LLP="$S/seed/$NAME.llp"
     # pi's first message: the seeded task (a client over --mode rpc sends it itself: DIR/seed/task.md)
-    sed -e "s#{{SEED}}#$REL#g" -e "s#{{NAME}}#$NAME#g" "$HERE/prompts/seed-task.md" > "$S/seed/task.md"
+    t="$(cat "$HERE/prompts/seed-task.md")"; t="${t//"{{SEED}}"/$REL}"; t="${t//"{{NAME}}"/$NAME}"   # no sed: any path
+    printf '%s\n' "$t" > "$S/seed/task.md"
     case " $* " in *" --mode "*) ;; *) TASK=("$(cat "$S/seed/task.md")") ;; esac
   fi
   export METIS_CATALOG="$S/catalog" METIS_LOOP_RECORDS="$S/records" PI_LOOP_SESSIONS="$S/sessions" METIS_LOOP_RUN="$S"

@@ -126,15 +126,20 @@ async function main() {
 	check("its clock runs", !/^(ERROR|BLOCKED)/.test(clock));
 	await call("domain_state", { domain: name });
 	await call("domain_events", { domain: name });
-	say(`\n## 5. take it into the person's catalog\n`);
+	say(`\n## 5. a README, from the program's header (gated)\n`);
+	// what a model would write: the title, and the header's own words (its origin, its versions), none invented
+	const header = text.split("\n").filter((l) => /^%/.test(l)).slice(0, 12).map((l) => l.replace(/^%+ ?/, "")).join("\n");
+	const readme = `# ${name} — the fiction program ${basename(seed)}\n\nSeeded from \`${rel}\`. Its header:\n\n${header.split("\n").map((l) => `> ${l}`).join("\n")}\n`;
+	const rd = await call("catalog_apply", { domain: name, what: "readme", text: readme });
+	check("the README is written, behind the gate", rd.startsWith("applied:") && readFileSync(join(cat, "domains", name, "README.md"), "utf8") === readme);
+	say(`\n## 6. take it into the person's catalog\n`);
 	const taken = await call("catalog_take", { domain: name });
 	const d = join(into, "domains", name);
 	check("taken into the target", taken.startsWith(`taken into ${into}:`));
 	check("the target's program is the seed", existsSync(join(d, `${name}.llp`)) && readFileSync(join(d, `${name}.llp`), "utf8") === text);
-	check("the target has domain.yaml and a README naming the seed",
-		existsSync(join(d, "domain.yaml")) && readFileSync(join(d, "README.md"), "utf8").includes(`seeded from \`${rel}\``));
+	check("the target has domain.yaml and the approved README", existsSync(join(d, "domain.yaml")) && readFileSync(join(d, "README.md"), "utf8") === readme);
 	check("its bundle built", existsSync(join(d, "build", `${name}.metis`)));
-	check("the loop's own catalog is untouched by the take", !existsSync(join(cat, "domains", name, "README.md")));
+	check("the loop's own catalog is untouched by the take", !existsSync(join(cat, "domains", name, "build")));
 	const again = await call("catalog_take", { domain: name });
 	check("a second take is refused", again.startsWith("BLOCKED:") && /already/.test(again));
 	const ok = Object.values(checks).every(Boolean);

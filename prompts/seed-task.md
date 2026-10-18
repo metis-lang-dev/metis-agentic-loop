@@ -4,6 +4,7 @@ The REPL serves an existing program, the seed: `{{SEED}}`. Make it the catalog d
 2. `catalog_apply` with domain={{NAME}} what=served: the seed, as it is, becomes the domain's program, with a domain.yaml. The person approves the diff.
 3. Intents: `catalog_apply` with what=intents. It drafts the person's verbs from the program's commands (`cmd_*` atoms). A world without commands gets an intent.yaml that knows none (only UNKNOWN): the domain agent opens no domain without one. Say which it is.
 4. Exercise: `domain_open` with domain={{NAME}}, then advance time (`domain_clock`) and read it (`domain_state`, `domain_events`). Say what the program does when it runs.
-5. When the person asks: `catalog_take` with domain={{NAME}}. It brings the domain into the person's catalog with a README of where it came from.
+5. A README: `catalog_apply` with domain={{NAME}} what=readme and text, the README's Markdown: a title line `# {{NAME}} — <what the world is>`, what the program tells, and where it came from — the program's header says its origin and versions; copy those, invent none. The person approves it.
+6. When the person asks: `catalog_take` with domain={{NAME}}. It brings the domain into the person's catalog, with its README.
 
 Say briefly what you did after each step.

@@ -173,7 +173,7 @@ test("metis-repl: catalog_take takes a domain into the person's catalog, behind 
 		const shown: string[] = [];
 		const watch = { hasUI: true, ui: { confirm: async (t: string, b: string) => (shown.push(`${t}\n${b}`), true), notify: () => {} } };
 		assert.equal(await p.emit("tool_call", take, watch), undefined);
-		assert.ok(shown[0].startsWith(`Apply to the catalog ${into}: `));
+		assert.ok(shown[0].startsWith(`Take into the catalog ${into}: `));
 		assert.match(shown[0], /domains\/lamp\/README\.md \(new\)[\s\S]*\+# lamp — a desk lamp/);
 		assert.ok(!existsSync(join(into, "domains", "lamp")));                         // the dry run wrote nothing
 		await assert.rejects(p.tools.get("catalog_apply").execute("t", { domain: "lamp", what: "program" }), /not approved/);
@@ -217,8 +217,46 @@ test("metis-repl: what=served writes the program the REPL serves, as it is (a se
 		assert.match(r.content[0].text, /^applied: domains\/story\/story\.llp, domains\/story\/domain\.yaml\./);
 		assert.equal(readFileSync(join(cat, "domains", "story", "story.llp"), "utf8"), text);   // byte for byte
 		assert.doesNotMatch(readFileSync(process.env.STUB_LOG!, "utf8"), /"op": "show"/);       // no candidate asked for
+		// what=readme: a gated README for a known domain, the text as given
+		const rd = { toolName: "catalog_apply", toolCallId: "m", input: { domain: "story", what: "readme", text: "# story — a seed\n\nFrom its header." } };
+		assert.equal(await p.emit("tool_call", rd, watch), undefined);
+		assert.match(shown[1], /domains\/story\/README\.md \(new\)[\s\S]*\+# story — a seed/);
+		await p.tools.get("catalog_apply").execute("m", rd.input);
+		assert.equal(readFileSync(join(cat, "domains", "story", "README.md"), "utf8"), "# story — a seed\n\nFrom its header.\n");
+		assert.match((await p.emit("tool_call", { ...rd, input: { domain: "story", what: "readme" } }, watch)).reason, /text is the README/);
+		assert.match((await p.emit("tool_call", { ...rd, input: { domain: "nosuch", what: "readme", text: "x" } }, watch)).reason, /its README follows its program/);
 	} finally {
 		process.env.METIS_LOOP_LLP = "";
+		await p.emit("session_shutdown", {}, {});
+	}
+});
+
+test("metis-repl: a seeded run applies the seed first — what=program/extension for a domain not yet in its catalog are refused (review R2)", async () => {
+	const cat = env(true);                                                               // STUB_GATED: a gated candidate
+	process.env.METIS_LOOP_RUN = mkdtempSync(join(tmpdir(), "loop-seeded-run-"));
+	writeFileSync(join(process.env.METIS_LOOP_RUN, "seed.json"), JSON.stringify({ seed: "x.llp", name: "lamp" }));
+	const p = fakePi();
+	repl(p.api);
+	await p.emit("session_start", {}, ui(true));
+	try {
+		for (const input of [{ domain: "lamp", what: "program" }, { domain: "other", what: "program" }, { domain: "lamp", what: "extension", name: "x" }]) {
+			const r = await p.emit("tool_call", { toolName: "catalog_apply", toolCallId: "q", input }, ui(true));
+			assert.match(r.reason, new RegExp(`a seeded run applies the seed first \\(catalog_apply domain=${input.domain} what=served\\)`));
+		}
+		// once the domain is in the catalog (the seed applied), a change is its diff
+		writeFileSync(join(cat, "domains", "lamp", "lamp.llp"), "catalog lamp 1.\n");
+		writeFileSync(join(cat, "domains", "lamp", "domain.yaml"), "program: lamp.llp\n");
+		const shown: string[] = [];
+		const watch = { hasUI: true, ui: { confirm: async (t: string, b: string) => (shown.push(`${t}\n${b}`), true), notify: () => {} } };
+		assert.equal(await p.emit("tool_call", { toolName: "catalog_apply", toolCallId: "q", input: { domain: "lamp", what: "program" } }, watch), undefined);
+		assert.match(shown[0], /domains\/lamp\/lamp\.llp\?[\s\S]*--- a\/domains\/lamp\/lamp\.llp[\s\S]*\+% the stub's candidate/);   // not (new): a diff
+		// an unseeded run: a new domain's program as before
+		delete process.env.METIS_LOOP_RUN;
+		const r = await p.emit("tool_call", { toolName: "catalog_apply", toolCallId: "u", input: { domain: "other", what: "program" } }, watch);
+		assert.equal(r, undefined);
+		assert.match(shown[1], /domains\/other\/other\.llp \(new\)/);
+	} finally {
+		delete process.env.METIS_LOOP_RUN;
 		await p.emit("session_shutdown", {}, {});
 	}
 });
@@ -232,7 +270,7 @@ test("loop.sh --seed: the run's seed, its name, the task as pi's first message; 
 		});
 		return { code: r.status, out: r.stdout ? JSON.parse(r.stdout) : null, err: r.stderr };
 	};
-	const src = mkdtempSync(join(tmpdir(), "loop-seedsrc-"));
+	const src = mkdtempSync(join(tmpdir(), "loop-seedsrc-#&-"));                      // the task's fill takes any path
 	writeFileSync(join(src, "love-story.llp"), "catalog love-story 1.\n");
 	writeFileSync(join(src, "3lp.llp"), "catalog three-pigs 1.\n");
 	const dir = mkdtempSync(join(tmpdir(), "loop-seeded-"));
@@ -278,7 +316,7 @@ test("example/seeded.ts: a fiction program seeded, applied as it is, opened, run
 	});
 	const out = JSON.parse(readFileSync(join(dir, "seeded.json"), "utf8"));
 	assert.ok(out.ok, `${JSON.stringify(out.checks)}\n${r.stdout.slice(-3000)}`);
-	assert.equal(out.gates, 3);                                                           // served, intents, take
+	assert.equal(out.gates, 4);                                                           // served, intents, readme, take
 });
 
 test("metis-domain: J from intent.yaml, T from tools.json, the clock; a surprise is steered in", async () => {

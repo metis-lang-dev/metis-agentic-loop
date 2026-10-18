@@ -117,14 +117,28 @@ export default function (pi: ExtensionAPI) {
 	// root: the catalog the write goes to; run: the write the person approved
 	type Plan = { domain: string; root: string; files: catalog.Planned[]; run: () => catalog.Applied; reopen: boolean; take?: boolean };
 
-	async function plan(p: { domain: string; what: string; name?: string }): Promise<Plan> {
+	async function plan(p: { domain: string; what: string; name?: string; text?: string }): Promise<Plan> {
 		if (!NAME.test(p.domain)) throw new Error(`domain ${JSON.stringify(p.domain)}: lowercase letters, digits, _`);
-		if (!["program", "served", "extension", "intents"].includes(p.what))
-			throw new Error(`what: program | served | extension | intents, not ${JSON.stringify(p.what)}`);
+		if (!["program", "served", "extension", "intents", "readme"].includes(p.what))
+			throw new Error(`what: program | served | extension | intents | readme, not ${JSON.stringify(p.what)}`);
 		const root = writeRoot();
 		const planned = (w: catalog.Write, reopen = false): Plan => ({
 			domain: p.domain, root, reopen, files: catalog.plan(p.domain, w, root), run: () => catalog.apply(p.domain, w, root),
 		});
+		let known = true;
+		try {
+			catalog.get(p.domain, root);
+		} catch {
+			known = false;
+		}
+		// a seeded run applies the seed first: a change to it is then a diff against it, never a "(new)" file
+		if (!known && existsSync(join(runDir(), "seed.json")) && (p.what === "program" || p.what === "extension"))
+			throw new Error(`a seeded run applies the seed first (catalog_apply domain=${p.domain} what=served); a change to it is then its diff against the seed`);
+		if (p.what === "readme") {
+			if (!known) throw new Error(`no domain ${p.domain} in the loop's catalog yet: its README follows its program`);
+			if (!p.text?.trim()) throw new Error("what=readme writes the text given: text is the README's Markdown");
+			return planned({ readme: p.text.endsWith("\n") ? p.text : p.text + "\n" });
+		}
 		if (p.what === "intents") {
 			// a first intent.yaml drafted from the program; apply names it in domain.yaml (intent: {spec})
 			return planned({ intents: catalog.skeleton(p.domain, root) });
@@ -145,12 +159,6 @@ export default function (pi: ExtensionAPI) {
 				if (!name) throw new Error("an extension needs a name (lowercase): it is written to domains/<domain>/extensions/<name>.llp");
 				return planned({ extensions: { [name]: text } });
 			}
-		}
-		let known = true;
-		try {
-			catalog.get(p.domain, root);
-		} catch {
-			known = false;
 		}
 		if (known) return planned({ program: text }, true);
 		// a new domain: its manifest, the host beside the program when the world brought one
@@ -184,11 +192,13 @@ export default function (pi: ExtensionAPI) {
 			"Write into the catalog (the person approves each write): what=program writes the REPL's gated candidate as the domain's program " +
 			"(and a domain.yaml when there is none), then the REPL serves it; what=served writes the program the REPL serves, as it is " +
 			"(a seed: its rules unchanged); what=extension writes the candidate as domains/<domain>/extensions/<name>.llp; " +
-			"what=intents writes a first intent.yaml drafted from the domain's program (its cmd_* atoms and %% lines) and generates its files.",
+			"what=intents writes a first intent.yaml drafted from the domain's program (its cmd_* atoms and %% lines) and generates its files; " +
+			"what=readme writes text as the domain's README.md.",
 		parameters: Type.Object({
 			domain: Type.String({ description: "the domain's name: lowercase letters, digits, _" }),
-			what: Type.Union([Type.Literal("program"), Type.Literal("served"), Type.Literal("extension"), Type.Literal("intents")]),
+			what: Type.Union([Type.Literal("program"), Type.Literal("served"), Type.Literal("extension"), Type.Literal("intents"), Type.Literal("readme")]),
 			name: Type.Optional(Type.String({ description: "what=extension: the extension's file name, without .llp" })),
+			text: Type.Optional(Type.String({ description: "what=readme: the README's Markdown" })),
 		}),
 		async execute(id) {
 			const pl = plans.get(id);
@@ -248,13 +258,13 @@ export default function (pi: ExtensionAPI) {
 		try {
 			pl = event.toolName === "catalog_take"
 				? planTake(event.input as { domain: string })
-				: await plan(event.input as { domain: string; what: string; name?: string });
+				: await plan(event.input as { domain: string; what: string; name?: string; text?: string });
 		} catch (e) {
 			return { block: true, reason: (e as Error).message };
 		}
 		if (!ctx.hasUI) return { block: true, reason: "no person to approve the write (no UI)" };
 		const what = pl.files.map((f) => `${f.path}${f.new ? " (new)" : ""}`).join(", ") || "nothing changes";
-		const ok = await ctx.ui.confirm(`Apply to the catalog ${pl.root}: ${what}?`, pl.files.map((f) => f.diff).join("").replace(/\n$/, ""));
+		const ok = await ctx.ui.confirm(`${pl.take ? "Take into" : "Apply to"} the catalog ${pl.root}: ${what}?`, pl.files.map((f) => f.diff).join("").replace(/\n$/, ""));
 		if (!ok) return { block: true, reason: "the person did not approve this write" };
 		plans.set(event.toolCallId, pl);
 		return undefined;
