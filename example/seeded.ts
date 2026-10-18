@@ -4,25 +4,32 @@
 // metis-agent's domain agent, the loop SDK's catalog — into a scratch target catalog.
 // No model: a seeded start formalizes nothing, so the run costs nothing.
 //
-//   node/bin/node --experimental-strip-types example/seeded.ts SEED.llp DIR [NAME]
+//   node/bin/node --experimental-strip-types example/seeded.ts SEED.llp|PKG_DIR DIR [NAME]
+//
+// PKG_DIR, a domain package (rddl-worlds s-242c7c3f: domains/nav/), is a package seed as
+// loop.sh --seed PKG_DIR makes it: the package whole, its program, included files and host;
+// a world with a host of its own is also measured (domain_ports, domain_episodes).
 //
 // DIR gets the run as loop.sh --scratch DIR --seed SEED makes it (catalog/, seed/,
 // seed.json, records/), the target catalog DIR/into (tools/ and an empty domains/),
 // seeded.md (the calls and their answers) and seeded.json (what held). Exit 1 when any
 // check fails.
-import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import repl from "../extensions/metis-repl.ts";
 import domain from "../extensions/metis-domain.ts";
+import * as catalog from "../extensions/sdk/catalog.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PKGS = join(HERE, "..", "..");                              // the sibling checkouts
 const AGENT = process.env.METIS_AGENT ?? join(PKGS, "metis-agent");
 const seed = resolve(process.argv[2] ?? "");
 const dir = resolve(process.argv[3] ?? "/tmp/loop-seeded");
+if (!existsSync(seed)) throw new Error(`usage: seeded.ts SEED.llp|PKG_DIR DIR [NAME] (no seed at ${seed})`);
+const pkg = statSync(seed).isDirectory();
 const name = process.argv[4] ?? basename(seed, ".llp").replace(/-/g, "_");
-if (!existsSync(seed)) throw new Error(`usage: seeded.ts SEED.llp DIR [NAME] (no seed at ${seed})`);
+const SKIP = /\/(build|records|__pycache__)(\/|$)/;
 
 // the run, as loop.sh --scratch DIR --seed SEED --name NAME lays it out
 rmSync(dir, { recursive: true, force: true });
@@ -33,21 +40,35 @@ for (const c of [cat, into]) {
 }
 mkdirSync(join(dir, "seed"));
 mkdirSync(join(dir, "records"));
-cpSync(seed, join(dir, "seed", `${name}.llp`));
 const rel = seed.startsWith(join(PKGS, "metis-catalog") + "/") ? seed.slice(join(PKGS, "metis-catalog").length + 1) : seed;
-writeFileSync(join(dir, "seed.json"), JSON.stringify({ seed: rel, name }));
+if (pkg) {
+	cpSync(seed, join(dir, "seed", "domains", name), { recursive: true, filter: (f) => !SKIP.test(f) });
+	cpSync(join(PKGS, "metis-catalog", "tools"), join(dir, "seed", "tools"), { recursive: true });
+	writeFileSync(join(dir, "seed.json"), JSON.stringify({ seed: rel, name, package: true }));
+} else {
+	cpSync(seed, join(dir, "seed", `${name}.llp`));
+	writeFileSync(join(dir, "seed.json"), JSON.stringify({ seed: rel, name }));
+}
 Object.assign(process.env, {
 	METIS_CATALOG: cat,
 	METIS_LOOP_TAKE_INTO: into,
 	METIS_LOOP_RUN: dir,
 	METIS_LOOP_RECORDS: join(dir, "records"),
 	METIS_LOOP_LLP: join(dir, "seed", `${name}.llp`),
+	METIS_RDDL_PY: process.env.METIS_RDDL_PY ?? join(PKGS, ".venv", "bin", "python"), // a scratch catalog has no .venv beside it
 	METIS_LOOP_METIS: process.env.METIS_LOOP_METIS ?? join(PKGS, ".venv", "bin", "metis"),
 	METIS_LOOP_SDK_PY: process.env.METIS_LOOP_SDK_PY ?? join(PKGS, ".venv", "bin", "python"),
 	METIS_LOOP_AGENT_PY: process.env.METIS_LOOP_AGENT_PY ?? join(AGENT, "py", ".venv", "bin", "python"),
 	METIS_LOOP_AGENT_DIR: process.env.METIS_LOOP_AGENT_DIR ?? join(AGENT, "py"),
 });
 
+// a package's files (relative to it), and its program where the seed catalog serves it
+const files = (root: string, at = ""): string[] =>
+	readdirSync(join(root, at), { withFileTypes: true }).flatMap((e) =>
+		SKIP.test(`/${at}/${e.name}/`) ? [] : e.isDirectory() ? files(root, join(at, e.name)) : [join(at, e.name)]);
+if (pkg) process.env.METIS_LOOP_LLP = catalog.get(name, join(dir, "seed")).program;
+const seedProg = process.env.METIS_LOOP_LLP!;
+const progName = basename(seedProg);
 const log = join(dir, "seeded.md");
 writeFileSync(log, `# a seeded start, scripted (${new Date().toISOString()}): ${rel} as the domain ${name}\n\n`);
 const say = (s: string) => {
@@ -105,17 +126,23 @@ async function main() {
 	repl(api);
 	domain(api);
 	await emit("session_start", {}, person);
-	const text = readFileSync(seed, "utf8");
+	const text = readFileSync(seedProg, "utf8");
 	say(`\n## 1. read the seed\n`);
 	await call("repl_state", { arg: "" });
 	await call("repl_show", { arg: "base" });
 	say(`\n## 2. the seed, as it is, becomes the domain's program\n`);
 	const applied = await call("catalog_apply", { domain: name, what: "served", display: `the ${name.replace(/_/g, " ")}`, line: `the program ${basename(seed)}, seeded` });
-	const prog = join(cat, "domains", name, `${name}.llp`);
+	const prog = join(cat, "domains", name, progName);
 	check("the domain's program is the seed, byte for byte", existsSync(prog) && readFileSync(prog, "utf8") === text);
-	check("the gate showed the seed's diff", gates.length === 1 && gates[0].includes(`domains/${name}/${name}.llp (new)`));
+	check("the gate showed the seed's diff", gates.length === 1 && gates[0].includes(`domains/${name}/${progName} (new)`));
 	check("the REPL serves the catalog's program", applied.includes(`The REPL now serves ${prog}`));
 	check("domain.yaml has the display and line", /^display: /m.test(readFileSync(join(cat, "domains", name, "domain.yaml"), "utf8")));
+	if (pkg) {
+		const own = files(seed);
+		check("the package came whole, every file byte for byte", own.every((f) =>
+			existsSync(join(cat, "domains", name, f)) && readFileSync(join(cat, "domains", name, f), "utf8") === readFileSync(join(seed, f), "utf8")));
+		check("the gate showed every file of it", own.every((f) => gates[0].includes(`domains/${name}/${f} (new)`)));
+	}
 	say(`\n## 3. intents\n`);
 	const it = await call("catalog_apply", { domain: name, what: "intents" });
 	const commands = /^pred\s+cmd_\w+/m.test(text);
@@ -129,12 +156,20 @@ async function main() {
 	check("its clock runs", !/^(ERROR|BLOCKED)/.test(clock));
 	await call("domain_state", { domain: name });
 	await call("domain_events", { domain: name });
+	const ports = await call("domain_ports", {});
+	if (/^gym: /.test(ports)) {
+		// a world with a host of its own (an RDDL gym): measured, and recorded — nothing fixed
+		const a = await call("domain_episodes", { n: 3, seed: 1 });
+		const b = await call("domain_episodes", { n: 3, seed: 1 });
+		check("its episodes are measured, the likelihood per action", /^3 episode\(s\), seeds 1–3;/.test(a) && /P\(the world's answer \| the action the program sent\)/.test(a));
+		check("the same seeds measure the same", a === b);
+	}
 	say(`\n## 5. the person asks for a comment changed: catalog_edit, every other byte kept\n`);
 	// the fiction port's case (s-e3d0942d finding 1): one header line, never formalize or revise
 	const first = text.split("\n").find((l) => /^% \S/.test(l));
 	let expected = text;
 	if (first) {
-		const ed = await call("catalog_edit", { domain: name, path: `${name}.llp`, old_string: first, new_string: `${first} (edited in the loop)` });
+		const ed = await call("catalog_edit", { domain: name, path: progName, old_string: first, new_string: `${first} (edited in the loop)` });
 		expected = text.replace(first, `${first} (edited in the loop)`);
 		const now = readFileSync(prog, "utf8");
 		check("the edit changed that line only", ed.startsWith("applied:") && now === expected);
@@ -142,17 +177,27 @@ async function main() {
 		check("every comment is kept", comments(now).length === comments(text).length && comments(now).filter((l) => !comments(text).includes(l)).length === 1);
 		check("the REPL serves the edited program", ed.includes(`The REPL now serves ${prog}`));
 	} else say("  (the seed has no header comment to edit)");
-	say(`\n## 6. a README: the model's title and summary, the rest the SDK's (gated)\n`);
-	const rd = await call("catalog_apply", { domain: name, what: "readme", title: `the program ${basename(seed)}`, text: `Seeded from \`${rel}\`.` });
-	const readme = readFileSync(join(cat, "domains", name, "README.md"), "utf8");
-	check("the README is written, behind the gate", rd.startsWith("applied:") && readme.startsWith(`# ${name} — the program ${basename(seed)}\n\nSeeded from`));
-	const head = expected.split("\n").filter((l) => /^%/.test(l));
-	check("the README carries the program's header verbatim", !first || readme.includes(head[0]));
+	let readme: string;
+	if (pkg && existsSync(join(seed, "README.md"))) {
+		say(`\n## 6. the package's own README, kept\n`);
+		readme = readFileSync(join(cat, "domains", name, "README.md"), "utf8");
+		check("the package's README is kept", readme === readFileSync(join(seed, "README.md"), "utf8"));
+	} else {
+		say(`\n## 6. a README: the model's title and summary, the rest the SDK's (gated)\n`);
+		const rd = await call("catalog_apply", { domain: name, what: "readme", title: `the program ${basename(seed)}`, text: `Seeded from \`${rel}\`.` });
+		readme = readFileSync(join(cat, "domains", name, "README.md"), "utf8");
+		check("the README is written, behind the gate", rd.startsWith("applied:") && readme.startsWith(`# ${name} — the program ${basename(seed)}\n\nSeeded from`));
+		const head = expected.split("\n").filter((l) => /^%/.test(l));
+		check("the README carries the program's header verbatim", !first || readme.includes(head[0]));
+	}
 	say(`\n## 7. take it into the person's catalog\n`);
 	const taken = await call("catalog_take", { domain: name });
 	const d = join(into, "domains", name);
 	check("taken into the target", taken.startsWith(`taken into ${into}:`));
-	check("the target's program is the seed as edited", existsSync(join(d, `${name}.llp`)) && readFileSync(join(d, `${name}.llp`), "utf8") === expected);
+	check("the target's program is the seed as edited", existsSync(join(d, progName)) && readFileSync(join(d, progName), "utf8") === expected);
+	if (pkg)
+		check("the target has every other file of the package", files(seed).filter((f) => f !== progName).every((f) =>
+			existsSync(join(d, f)) && readFileSync(join(d, f), "utf8") === readFileSync(join(seed, f), "utf8")));
 	check("the target has domain.yaml and the approved README", existsSync(join(d, "domain.yaml")) && readFileSync(join(d, "README.md"), "utf8") === readme);
 	check("its bundle built", existsSync(join(d, "build", `${name}.metis`)));
 	check("the loop's own catalog is untouched by the take", !existsSync(join(cat, "domains", name, "build")));

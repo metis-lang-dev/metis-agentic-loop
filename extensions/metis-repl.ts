@@ -167,6 +167,20 @@ export default function (pi: ExtensionAPI) {
 			return planned({ intents: sk });
 		}
 		let text: string;
+		// a package seed (loop.sh --seed domains/<name>/): the whole package, as the seed catalog has it
+		const seed = (() => {
+			try {
+				return JSON.parse(readFileSync(join(runDir(), "seed.json"), "utf8"));
+			} catch {
+				return null;
+			}
+		})();
+		if (p.what === "served" && seed?.package) {
+			if (p.domain !== seed.name) throw new Error(`the seed is the package ${seed.name}: catalog_apply domain=${seed.name} what=served`);
+			const from = join(runDir(), "seed");
+			return { tool: "catalog_apply", domain: p.domain, root, reopen: true, files: catalog.planTake(p.domain, from, {}, root, since(root)),
+				run: () => catalog.take(p.domain, from, {}, root) }; // its domain.yaml as it is: display and line its own
+		}
 		if (p.what === "served") {
 			// the program the REPL serves, as it is (loop.sh --seed: the seed): no candidate, no rule changed
 			if (!served) throw new Error("the REPL serves a blank world: there is no program to apply (loop.sh --seed starts it on one)");
@@ -364,9 +378,23 @@ export default function (pi: ExtensionAPI) {
 		return undefined;
 	});
 
+	// a package seed's program is served with its host (its weight ports, its world), as the seed catalog names it
+	function seedHost(llp: string | null): string | null {
+		if (!llp) return null;
+		try {
+			const s = JSON.parse(readFileSync(join(runDir(), "seed.json"), "utf8"));
+			if (!s.package) return null;
+			const d = catalog.get(s.name, join(runDir(), "seed"));
+			if (resolve(d.program) !== resolve(llp)) return null;
+			return d.host && /\.py:/.test(d.host) ? join(dirname(d.program), d.host) : d.host ?? null;
+		} catch {
+			return null;
+		}
+	}
+
 	pi.on("session_start", async (_event, ctx) => {
 		const llp = process.env.METIS_LOOP_LLP || null;
-		open(llp, null);
+		open(llp, seedHost(llp));
 		const r = await registerVerbs();
 		if (r.undescribed.length && ctx.hasUI)
 			ctx.ui.notify(`metis-repl: ${r.ops} verbs; ${r.undescribed.length} without a description on the wire (finding: metispy): ${r.undescribed.join(" ")}`, "warning");

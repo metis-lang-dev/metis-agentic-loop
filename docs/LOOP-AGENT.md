@@ -45,6 +45,7 @@ AGENT-LOOP.md's steps, each with the tools it uses and the state it leaves behin
 | **apply** | the candidate is written into the catalog, gated (the person sees the loop SDK's dry-run diff), through the SDK's one validated write (`python -m metis_loop_sdk.catalog apply`); the REPL then serves it | `catalog_apply` what=program | the domain's program, plus `domain.yaml` when there is none |
 | **intents** | the person's verbs are drafted from the program's `cmd_*` atoms and `%%` lines (the SDK's `catalog intents --skeleton`; `apply --intents` writes it and generates its files), gated | `catalog_apply` what=intents | `intent.yaml` and `intent/` |
 | **exercise** | the domain agent runs the domain, the loop owning its clock | `domain_open`, `intent_<verb>`, `domain_clock`, `domain_state` / `why` / `events` / `ctx` / `findings` | the agent's records (`--records`) |
+| **exercise (no intents)** | a world without intents (an RDDL world, its host the gym) is exercised through its world: its ports, world lines, beats, and seeded episodes measured, every beat scored (per action, P(the world's answer \| that action) under the program); recorded, not fixed | `domain_ports`, `domain_world`, `domain_clock`, `domain_episodes` | the measure: outcomes, likelihood, surprises, mismatched atoms |
 | **surprise** | the world reads differently from the program; a message enters the loop | (a signal) | an open record |
 | **revise** | the missing behaviour is described, drafted as an extension, and gated as one | `repl_mine`, `repl_formalize`, `repl_gate`, `repl_show` | a candidate that passed `gate` |
 | **apply** | the extension is written, gated | `catalog_apply` what=extension | `domains/<n>/extensions/<name>.llp` |
@@ -95,7 +96,7 @@ The kernel's formalize has its own repair rounds.
 | file | process | tools | glue |
 |---|---|---|---|
 | `metis-repl.ts` | one `metis --json [llp]` per session; reopened on the applied program | `repl_<verb>` for every verb the wire's `help` lists (39 today), each with the description the wire declares; `catalog_apply`, `catalog_edit`, `catalog_take`; the `tool_call` gate | see the report |
-| `metis-domain.ts` | one `domain_agent --domain <n> --case replay --consult template [--records DIR]` per `domain_open` | `domain_open`, `domain_clock`; `domain_<tool>` for every tool of `metis --tools-json` served by the domain agent (served_by repl / watch / agent: state, ctx, events, why, findings, consult, reset, explain, escalate); `intent_<verb>` for every verb of the domain's `intent.yaml` | |
+| `metis-domain.ts` | one `domain_agent --domain <n> --case replay --consult template [--records DIR]` per `domain_open` | `domain_open`, `domain_clock`, `domain_ports`, `domain_world`, `domain_episodes`; `domain_<tool>` for every tool of `metis --tools-json` served by the domain agent (served_by repl / watch / agent: state, ctx, events, why, findings, consult, reset, explain, escalate); `intent_<verb>` for every verb of the domain's `intent.yaml` | |
 | `lib/jsonl.ts` | — | a JSON-lines child: one request, the lines until its answer, unasked lines to a callback | |
 
 pi facts relied on:

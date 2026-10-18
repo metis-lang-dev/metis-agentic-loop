@@ -9,6 +9,12 @@
 //   T  domain_<tool>  one per tool of metispy's REPL API (`metis --tools-json`)
 //                     the domain agent serves (served_by repl | watch | agent)
 //   +  domain_clock   the loop owns time ({"clock": "beat"|"step"})
+//   +  domain_ports   the host's world ports ({"ports"}): an RDDL world's gym, its
+//                     observed and derived atoms, its actions and weight ports
+//   +  domain_world   world lines to the host ({"world": [...]}): +atom / -atom, …
+//   +  domain_episodes N seeded episodes measured ({"reset": {"seed"}}, scored beats
+//                     to the episode's end): outcomes, likelihood, surprises, mismatches
+//                     (rddl-worlds s-242c7c3f: a world without intents is exercised so)
 // Unasked lines (event, quiescence, surprise) and the intents' late outcomes
 // come with the clock; a surprise also enters the loop as a message.
 //
@@ -196,6 +202,197 @@ export default function (pi: ExtensionAPI) {
 				if (out[out.length - 1].over) break;
 			}
 			return { content: [{ type: "text", text: cap(summary(all)) }], details: { lines: all } };
+		},
+	});
+
+	// ---- the world faces (rddl-worlds s-242c7c3f): a world without intents ----
+
+	function ports(l: Line): string {
+		const h = l.host ?? null;
+		const rows: string[] = [];
+		if (h?.gym) rows.push(`gym: ${Object.entries(h.gym).map(([k, v]) => `${k} ${JSON.stringify(v)}`).join(", ")}`);
+		if (h?.observed) rows.push(`observed atoms (${h.observed.length}): ${h.observed.join(" ")}`);
+		if (h?.derived?.length) rows.push(`derived atoms: ${h.derived.join(" ")}`);
+		if (h?.actions?.length) rows.push(`actions: ${h.actions.join(" ")}`);
+		if (h?.weights?.length) rows.push(`weight ports the host binds: ${h.weights.join(" ")}`);
+		if (l.pairs?.length) rows.push(`pairs: ${JSON.stringify(l.pairs)}${l.held?.length ? `; held now: ${l.held.join(" ")}` : ""}`);
+		if (l.reports && Object.keys(l.reports).length) rows.push(`reports: ${Object.keys(l.reports).join(" ")}`);
+		rows.push(l.world ? "world lines: taken (domain_world)" : "world lines: this host takes none");
+		return rows.join("\n");
+	}
+
+	pi.registerTool({
+		executionMode: "sequential",
+		name: "domain_ports",
+		label: "the domain's ports",
+		description:
+			"The open domain's world ports, read from its host: an RDDL world's gym (problem, instance, seed, step, horizon, done, reward), " +
+			"the atoms the host observes and derives, the actions it sends the gym, the weight ports it binds; for another world its pairs and reports. " +
+			"Read it before domain_world, so no name is guessed.",
+		parameters: Type.Object({}),
+		async execute() {
+			const id = `p${++seq}`;
+			const out = await line({ ports: {}, id }, (x) => x.ack !== undefined && x.id === id);
+			const p = out.find((x) => (x.kind ?? x.signal) === "ports");
+			const err = out.find((x) => x.error);
+			return { content: [{ type: "text", text: cap(p ? ports(p) : `refused: ${err?.error ?? JSON.stringify(out)}`) }], details: { lines: out } };
+		},
+	});
+
+	pi.registerTool({
+		executionMode: "sequential",
+		name: "domain_world",
+		label: "world lines to the domain",
+		description:
+			"Set the open domain's world through its host, for a scenario: lines as domain_ports names them — `+atom` / `-atom` (a state fluent), " +
+			"`nonfluent KEY V`, `seed N`, `reset [N]` for an RDDL world. The world changes; the program does not. Then advance time with domain_clock.",
+		parameters: Type.Object({ lines: Type.Array(Type.String(), { description: "the world lines, e.g. [\"+at(x6_y12)\", \"-at(x21_y12)\"]", minItems: 1 }) }),
+		async execute(_id, params) {
+			const id = `w${++seq}`;
+			const out = await line({ world: params.lines, id }, (x) => x.ack !== undefined && x.id === id);
+			const err = out.find((x) => x.error);
+			return {
+				content: [{ type: "text", text: err ? `refused: ${err.error}` : `world: ${params.lines.join(", ")} — taken; it reaches the program on the next beat (domain_clock).` }],
+				details: { lines: out },
+			};
+		},
+	});
+
+	type Episode = {
+		seed: number; beats: number; over: boolean; loglik: number | null; scored: number; unscored: number; zero: number; rare: number;
+		surprises: number; reward?: number; step?: number; done?: boolean; counts: Record<string, number>;
+	};
+	type Low = { seed: number; beat: number; p: number; what: string };
+	const RARE = 0.05;
+
+	// N episodes, each a reset with its seed (the program's sampler and the host's gym alike), the world lines,
+	// then scored beats to the episode's end: the measure, not the exercise — its surprises are counted, not steered in.
+	// The likelihood: per action the program sent, P(the world's answer | that action) (the domain agent's `outcomes`:
+	// an RDDL world); for a host with no actions, per beat, P(the host's reading | the beat's start)
+	async function episodes(n: number, seed0: number, world: string[] | undefined, maxBeats: number) {
+		if (!agent) throw new Error("no domain is open: call domain_open first");
+		const eps: Episode[] = [];
+		const low: Low[] = [];
+		const mism = new Map<string, { beats: number; episodes: Set<number>; more: number; less: number }>();
+		let measure: "outcome" | "beat" | null = null;
+		for (let k = 0; k < n; k++) {
+			const seed = seed0 + k;
+			// the case domain_open started (replay): a reset without one would rebuild another
+			const r = await agent.request({ reset: { seed, case: "replay" }, id: `r${++seq}` }, (x) => x.ack !== undefined);
+			const bad = r.find((x) => x.error);
+			if (bad) throw new Error(`episode seed ${seed}: the reset was refused: ${bad.error}`);
+			if (world?.length) {
+				const w = await agent.request({ world, id: `w${++seq}` }, (x) => x.ack !== undefined);
+				const e = w.find((x) => x.error);
+				if (e) throw new Error(`episode seed ${seed}: the world lines were refused: ${e.error}`);
+			}
+			const ep: Episode = { seed, beats: 0, over: false, loglik: 0, scored: 0, unscored: 0, zero: 0, rare: 0, surprises: 0, counts: {} };
+			const score = (p: number | null | undefined, beat: number, what: string) => {
+				if (typeof p !== "number") return void ep.unscored++;
+				ep.scored++;
+				if (p <= 0) ep.zero++;
+				else if (ep.loglik !== null) ep.loglik += Math.log(p);
+				if (p < RARE) ep.rare++;
+				if (p < 1) low.push({ seed, beat, p, what });
+			};
+			for (let b = 0; b < maxBeats; b++) {
+				const out = await agent.request({ clock: "beat", score: true }, (x) => x.clock === "beat");
+				const c = out[out.length - 1];
+				ep.beats++;
+				ep.surprises += out.filter((x) => (x.kind ?? x.signal) === "surprise").length;
+				const sc = c.score;
+				if (sc) {
+					ep.counts = sc.counts ?? ep.counts;
+					if (Array.isArray(sc.outcomes)) {
+						measure = "outcome";
+						for (const o of sc.outcomes)
+							score(o.p, c.beat, `${o.event} (${Object.keys(o.action ?? {}).join(" ")}; the world: ${(o.answered_by ?? []).join(" ") || o.unscored || "none of the alternatives"})`);
+					} else {
+						measure = measure ?? "beat";
+						score(sc.likelihood, c.beat, `the reading${sc.mismatch?.length ? ` ${JSON.stringify(sc.mismatch)}` : ""}`);
+					}
+					for (const d of sc.mismatch ?? [])
+						for (const [atom, v] of Object.entries(d as Record<string, number>)) {
+							const m = mism.get(atom) ?? { beats: 0, episodes: new Set<number>(), more: 0, less: 0 };
+							m.beats++;
+							m.episodes.add(seed);
+							v > 0 ? m.more++ : m.less++;
+							mism.set(atom, m);
+						}
+				} else ep.unscored++;
+				if (c.over) {
+					ep.over = true;
+					break;
+				}
+			}
+			if (ep.zero) ep.loglik = null; // an impossible answer: the program gives the episode zero probability
+			const pr = await agent.request({ ports: {}, id: `p${++seq}` }, (x) => x.ack !== undefined);
+			const gym = pr.find((x) => (x.kind ?? x.signal) === "ports")?.host?.gym;
+			if (gym) Object.assign(ep, { reward: gym.reward, step: gym.step, done: gym.done });
+			eps.push(ep);
+		}
+		return { eps, low, mism, measure };
+	}
+
+	function episodesText(n: number, seed0: number, r: Awaited<ReturnType<typeof episodes>>): string {
+		const { eps, low, mism, measure } = r;
+		const fin = eps.map((e) => e.loglik).filter((x): x is number => x !== null);
+		const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
+		const f = (x: number) => x.toFixed(3);
+		const rows = [`${n} episode(s), seeds ${seed0}–${seed0 + n - 1}; each a reset with its seed, then scored beats to its end.`];
+		// outcomes: the reported atoms at each episode's end, and the host's gym
+		const atoms = [...new Set(eps.flatMap((e) => Object.keys(e.counts)))].sort();
+		for (const a of atoms) {
+			const by = new Map<number, number>();
+			for (const e of eps) by.set(e.counts[a] ?? 0, (by.get(e.counts[a] ?? 0) ?? 0) + 1);
+			rows.push(`outcome ${a}: ${[...by.entries()].sort((x, y) => x[0] - y[0]).map(([v, k]) => `${v} in ${k}/${eps.length}`).join(", ")}`);
+		}
+		const rw = eps.map((e) => e.reward).filter((x): x is number => typeof x === "number");
+		if (rw.length) rows.push(`gym reward: mean ${f(sum(rw) / rw.length)}, min ${f(Math.min(...rw))}, max ${f(Math.max(...rw))}; episodes done ${eps.filter((e) => e.done).length}/${eps.length}`);
+		const notOver = eps.filter((e) => !e.over).length;
+		if (notOver) rows.push(`${notOver} episode(s) did not end within the beat cap`);
+		// the program's likelihood of what the world did
+		const scored = sum(eps.map((e) => e.scored)), unscored = sum(eps.map((e) => e.unscored));
+		const what = measure === "outcome" ? "P(the world's answer | the action the program sent), per action"
+			: measure === "beat" ? "P(the host's reading | the beat's start), per beat (the host maps no actions)" : "nothing scored";
+		rows.push(`likelihood under the program, ${what}: ${scored} scored` + (unscored ? `, ${unscored} unscored` : "") +
+			(scored ? `; mean log per scored ${f(sum(fin) / Math.max(1, sum(eps.filter((e) => e.loglik !== null).map((e) => e.scored))))}` : "") +
+			(fin.length ? `; per episode (sum of logs) mean ${f(sum(fin) / fin.length)}, min ${f(Math.min(...fin))}, max ${f(Math.max(...fin))}` : "") +
+			`; zero-probability episodes ${eps.filter((e) => e.loglik === null).length}/${eps.length}`);
+		rows.push(`surprises (readings the program gives zero probability) ${sum(eps.map((e) => e.surprises))} in ${eps.filter((e) => e.surprises).length} episode(s); ` +
+			`rare (likelihood < ${RARE}) ${sum(eps.map((e) => e.rare))} in ${eps.filter((e) => e.rare).length} episode(s)`);
+		if (mism.size)
+			rows.push("mismatched atoms (the program's sampled state against the host's reading; + the world has it, − the program does): " +
+				[...mism.entries()].sort((x, y) => y[1].beats - x[1].beats)
+					.map(([a, m]) => `${a} ${m.beats}× in ${m.episodes.size} episode(s) (+${m.more} −${m.less})`).join("; "));
+		const least = low.sort((x, y) => x.p - y.p).slice(0, 10);
+		if (least.length) rows.push("the least likely: " + least.map((w) => `seed ${w.seed} beat ${w.beat}: ${w.p.toPrecision(3)} ${w.what}`).join("; "));
+		rows.push("per episode: " + eps.map((e) => `seed ${e.seed}: ${e.beats} beats, ${e.scored} scored, log ${e.loglik === null ? "−∞" : f(e.loglik)}${e.reward !== undefined ? `, reward ${e.reward}` : ""}`).join("; "));
+		rows.push(`The domain is now at the end of episode seed ${seed0 + n - 1}; domain_open starts it afresh.`);
+		return rows.join("\n");
+	}
+
+	pi.registerTool({
+		executionMode: "sequential",
+		name: "domain_episodes",
+		label: "measure episodes",
+		description:
+			"Measure the open domain against its world: n seeded episodes (each a reset with its seed, so the program's sampler and an RDDL world's gym " +
+			"are the same per seed; world lines after each reset), each run to its end with every beat scored. It answers the outcome frequencies, " +
+			"the program's likelihood of what the world did (per episode and the least likely beats: a rate that is off shows here, not only the impossible), " +
+			"the surprises, and the mismatched atoms grouped. A measure: record it; it changes nothing.",
+		parameters: Type.Object({
+			n: Type.Optional(Type.Integer({ description: "how many episodes (1-50, default 10)", minimum: 1, maximum: 50 })),
+			seed: Type.Optional(Type.Integer({ description: "the first episode's seed (default 1); the others follow it", minimum: 0 })),
+			world: Type.Optional(Type.Array(Type.String(), { description: "world lines after each reset (domain_world's), for a scenario" })),
+			max_beats: Type.Optional(Type.Integer({ description: "the beat cap per episode (default 200)", minimum: 1, maximum: 1000 })),
+		}),
+		async execute(_id, params) {
+			const n = Math.min(50, Math.max(1, params.n ?? 10));
+			const seed0 = params.seed ?? 1;
+			const r = await episodes(n, seed0, params.world, params.max_beats ?? 200);
+			const mismatch = Object.fromEntries([...r.mism.entries()].map(([a, m]) => [a, { beats: m.beats, episodes: m.episodes.size, more: m.more, less: m.less }]));
+			return { content: [{ type: "text", text: cap(episodesText(n, seed0, r)) }], details: { measure: r.measure, episodes: r.eps, low: r.low, mismatch } };
 		},
 	});
 

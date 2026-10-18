@@ -52,13 +52,15 @@ jobs:
           pip install ./metispy ./metis-catalog
           # sdk-v0.1.4: the catalog CLI's intents --spec (metis-loop 21bfc02), the
           # OpenAI-compatible face formalize uses on OpenRouter (metis-loop 7932969),
-          # take, catalog_take's (metis-loop 8c30fda), and edit, since, display/line and
-          # the README's mechanical parts (loop-fixes s-855d8067)
-          pip install "metis-loop-sdk @ git+https://github.com/metis-lang-dev/metis-loop@sdk-v0.1.4#subdirectory=sdk"
+          # take, catalog_take's (metis-loop 8c30fda), edit, since, display/line and the
+          # README's mechanical parts (loop-fixes s-855d8067), and take carrying the
+          # files a program includes (rddl-worlds s-242c7c3f: a package seed)
+          pip install "metis-loop-sdk @ git+https://github.com/metis-lang-dev/metis-loop@sdk-v0.1.5#subdirectory=sdk"
           python -m metis_loop_sdk.catalog intents --help | grep -q -- --spec
           python -m metis_loop_sdk.catalog take --help > /dev/null
           python -m metis_loop_sdk.catalog edit --help | grep -q -- --replace-all
           python -m metis_loop_sdk.catalog readme --help | grep -q -- --summary
+          python -c "from metis_loop_sdk import catalog; assert catalog.includes"
           python -m metis_loop_sdk.models openai-command --help > /dev/null
           python -c "import metis_loop_sdk.models.openai, metis_loop_sdk.catalog; print('sdk', metis_loop_sdk.__version__)"
       - name: 'Node and pi, pinned (setup.sh: checksummed node, npm ci from the lock)'

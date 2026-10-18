@@ -4,13 +4,18 @@
 #
 #   loop.sh --scratch DIR [pi args...]   a scratch catalog in DIR (made once: the
 #                                                 catalog's tools + the example's world), the trial
-#   loop.sh --scratch DIR --seed PATH.llp [--name NAME] [pi args...]
+#   loop.sh --scratch DIR --seed PATH.llp|PKG_DIR [--name NAME] [pi args...]
 #                                        a seeded start: the REPL serves an existing program
 #                                        (a copy in DIR/seed/), and pi's first message asks the
 #                                        model to make it the catalog domain NAME (default: the
 #                                        file's stem, - as _) through catalog_apply what=served —
 #                                        its rules unchanged — then exercise it and, when the
-#                                        person asks, catalog_take it (prompts/seed-task.md)
+#                                        person asks, catalog_take it (prompts/seed-task.md).
+#                                        PKG_DIR, a domain package (domains/<name>/: its manifest,
+#                                        program, included files, host): copied whole into
+#                                        DIR/seed/domains/NAME/ (NAME: the directory's name), its
+#                                        program served there; what=served takes the package
+#                                        into the loop's catalog, every file at the gate
 #   METIS_CATALOG=… loop.sh [pi args...] an existing catalog (the person's)
 #
 #   MODEL=ollama/metis-gemma4-e4b (default; …-cpu: no layer on the GPU), or another pi
@@ -40,12 +45,19 @@ if [ "${1:-}" = --scratch ]; then
       *) break ;;
     esac
   done
+  PACKAGE=""
   if [ -n "$SEED" ]; then
-    [ -f "$SEED" ] || { echo "loop.sh: --seed $SEED: no such file" >&2; exit 1; }
-    base="$(basename "$SEED" .llp)"; NAME="${NAME:-${base//-/_}}"
+    if [ -d "$SEED" ]; then                                             # a domain package: domains/<name>/ as it is
+      [ -f "$SEED/domain.yaml" ] || { echo "loop.sh: --seed $SEED: a directory seed is a domain package (its domain.yaml)" >&2; exit 1; }
+      PACKAGE=1; base="$(basename "$SEED")"
+    else
+      [ -f "$SEED" ] || { echo "loop.sh: --seed $SEED: no such file" >&2; exit 1; }
+      base="$(basename "$SEED" .llp)"
+    fi
+    NAME="${NAME:-${base//-/_}}"
     [[ "$NAME" =~ ^[a-z][a-z0-9_]*$ ]] || { echo "loop.sh: the domain name '$NAME': lowercase letters, digits, _ (give --name NAME)" >&2; exit 1; }
     case "$SEED" in "$PKGS/metis-catalog/"*) REL="${SEED#"$PKGS/metis-catalog/"}" ;; *) REL="$SEED" ;; esac
-    WANT="{\"seed\": \"$REL\", \"name\": \"$NAME\"}"
+    WANT="{\"seed\": \"$REL\", \"name\": \"$NAME\"${PACKAGE:+, \"package\": true}}"
     if [ -f "$S/seed.json" ]; then
       [ "$(cat "$S/seed.json")" = "$WANT" ] || { echo "loop.sh: $S was seeded otherwise ($(cat "$S/seed.json")): name a new DIR" >&2; exit 1; }
     elif [ -d "$S/catalog/domains" ]; then
@@ -59,7 +71,12 @@ if [ "${1:-}" = --scratch ]; then
   if [ ! -d "$S/catalog/domains" ]; then
     mkdir -p "$S/catalog/domains"
     cp -r "$PKGS/metis-catalog/tools" "$S/catalog/"                     # the intent generator the SDK runs on it
-    if [ -n "$SEED" ]; then                                             # the seed, served from a copy outside the catalog
+    if [ -n "$PACKAGE" ]; then                                          # the package, a catalog of its own outside the loop's
+      mkdir -p "$S/seed/domains/$NAME"
+      (cd "$SEED" && tar --exclude=./build --exclude=./records --exclude=__pycache__ -cf - .) | (cd "$S/seed/domains/$NAME" && tar -xf -)
+      cp -r "$PKGS/metis-catalog/tools" "$S/seed/"                      # its host's shared code (tools/rddl_host.py), as in the catalog
+      printf '%s' "$WANT" > "$S/seed.json"
+    elif [ -n "$SEED" ]; then                                           # the seed, served from a copy outside the catalog
       mkdir -p "$S/seed" && cp "$SEED" "$S/seed/$NAME.llp" && printf '%s' "$WANT" > "$S/seed.json"
     else
       cp -r "$PKGS/metis-catalog/domains/plant" "$S/catalog/domains/"       # a known domain beside the new one
@@ -68,8 +85,16 @@ if [ "${1:-}" = --scratch ]; then
       cp "$HERE/example/lamp/lamp_host.py" "$S/catalog/domains/lamp/"     # the world, before any program
     fi
   fi
-  if [ -n "$SEED" ]; then
+  if [ -n "$PACKAGE" ]; then                                            # its program where it is, so its includes resolve
+    SDK_PY="${METIS_LOOP_SDK_PY:-$PKGS/.venv/bin/python}"
+    METIS_LOOP_LLP="$("$SDK_PY" -m metis_loop_sdk.catalog --root "$S/seed" get "$NAME" --json |
+      "$SDK_PY" -c 'import json,sys; d=json.load(sys.stdin); print(d.get("program") or "")')" || true
+    [ -n "$METIS_LOOP_LLP" ] || { echo "loop.sh: --seed $SEED: its domain.yaml names no program the loop SDK reads" >&2; exit 1; }
+    export METIS_LOOP_LLP
+  elif [ -n "$SEED" ]; then
     export METIS_LOOP_LLP="$S/seed/$NAME.llp"
+  fi
+  if [ -n "$SEED" ]; then
     # pi's first message: the seeded task (a client over --mode rpc sends it itself: DIR/seed/task.md)
     t="$(cat "$HERE/prompts/seed-task.md")"; t="${t//"{{SEED}}"/"$REL"}"; t="${t//"{{NAME}}"/"$NAME"}"   # no sed: any path
     printf '%s\n' "$t" > "$S/seed/task.md"

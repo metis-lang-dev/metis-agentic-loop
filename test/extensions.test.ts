@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -584,4 +584,131 @@ test("metis-domain: an RDDL world (nav) opens with no verbs; its program acts, t
 	} finally {
 		await p.emit("session_shutdown", {}, {});
 	}
+});
+
+// rddl-worlds s-242c7c3f step 1 (B): a world without intents exercised through its ports, world lines and
+// measured episodes (nav against its gym; scripted, no model)
+function navCatalog(edit?: (dir: string) => void): string {
+	const r = mkdtempSync(join(tmpdir(), "loop-nav-"));
+	cpSync(join(PKGS, "metis-catalog", "tools"), join(r, "tools"), { recursive: true, filter: (s) => !s.includes("__pycache__") });
+	cpSync(join(PKGS, "metis-catalog", "domains", "nav"), join(r, "domains", "nav"), { recursive: true, filter: (s) => !/\/(build|records)(\/|$)/.test(s) });
+	edit?.(join(r, "domains", "nav"));
+	return r;
+}
+async function openNav(cat: string) {
+	env(false);
+	Object.assign(process.env, {
+		METIS_CATALOG: cat, METIS_LOOP_METIS: process.env.REAL_METIS!, METIS_LOOP_RECORDS: "",
+		METIS_LOOP_AGENT_PY: AGENT_PY, METIS_LOOP_AGENT_DIR: join(AGENT, "py"),
+		METIS_RDDL_PY: process.env.METIS_RDDL_PY ?? join(PKGS, ".venv", "bin", "python"), // a scratch catalog has no .venv beside it
+	});
+	const p = fakePi();
+	domain(p.api);
+	await p.tools.get("domain_open").execute("o", { domain: "nav" });
+	return p;
+}
+
+test("metis-domain: domain_ports and domain_world on an RDDL world (nav): the gym, its atoms and actions; world lines taken or refused", { skip: !hasGym && "no metis-agent or pyRDDLGym" }, async () => {
+	const p = await openNav(navCatalog());
+	try {
+		const ports = (await p.tools.get("domain_ports").execute("p", {})).content[0].text;
+		assert.match(ports, /^gym: problem "Navigation_MDP_ippc2011", instance "1", seed 1, step 0, horizon 40, done false/);
+		assert.match(ports, /observed atoms \(12\): at\(x14_y12\) /);
+		assert.match(ports, /derived atoms: dead\nactions: move-east move-north move-south move-west\nweight ports the host binds: die go\n/);
+		assert.match(ports, /world lines: taken/);
+		const w = await p.tools.get("domain_world").execute("w", { lines: ["teleport"] });
+		assert.match(w.content[0].text, /^refused: .*world lines are/);
+		const ok = await p.tools.get("domain_world").execute("w2", { lines: ["seed 7"] });
+		assert.match(ok.content[0].text, /^world: seed 7 — taken/);
+	} finally {
+		await p.emit("session_shutdown", {}, {});
+	}
+});
+
+test("metis-domain: domain_episodes — 20 seeded nav episodes, deterministic, no surprise on the true program; a wrong rate lowers the likelihood, a deleted rule makes outcomes impossible", { skip: !hasGym && "no metis-agent or pyRDDLGym" }, async () => {
+	const run = async (cat: string, n = 20) => {
+		const p = await openNav(cat);
+		try {
+			return await p.tools.get("domain_episodes").execute("e", { n, seed: 1 });
+		} finally {
+			await p.emit("session_shutdown", {}, {});
+		}
+	};
+	const mean = (d: any) => {
+		const eps = d.episodes.filter((e: any) => e.loglik !== null);
+		return eps.reduce((a: number, e: any) => a + e.loglik, 0) / eps.reduce((a: number, e: any) => a + e.scored, 0);
+	};
+	const cat = navCatalog();
+	const a = await run(cat), b = await run(cat);
+	assert.deepEqual(a.details, b.details);                                                   // deterministic per seed
+	const t = a.content[0].text;
+	assert.equal(a.details.measure, "outcome");
+	assert.equal(a.details.episodes.length, 20);
+	assert.ok(a.details.episodes.every((e: any) => e.over && e.done && e.step === 40));       // each to the gym's horizon
+	assert.ok(a.details.episodes.every((e: any) => e.surprises === 0 && e.loglik !== null));  // the program can say what the gym does
+	assert.match(t, /^20 episode\(s\), seeds 1–20;/);
+	assert.match(t, /\noutcome dead: 0 in \d+\/20, 1 in \d+\/20\n/);
+	assert.match(t, /\ngym reward: mean -?[\d.]+, min -?[\d.]+, max -?[\d.]+; episodes done 20\/20\n/);
+	assert.match(t, /likelihood under the program, P\(the world's answer \| the action the program sent\), per action: \d+ scored/);
+	assert.match(t, /the least likely: seed \d+ beat \d+: [\d.e-]+ (mv|die)_\w+\[/);
+	// a wrong rate, every rule kept (die ×5): nothing is impossible, the likelihood drops
+	const five = await run(navCatalog((d) => {
+		const h = join(d, "nav_host.py");
+		writeFileSync(h, readFileSync(h, "utf8").replace("else _p(host, c2)", "else 5 * _p(host, c2)"));
+	}));
+	assert.ok(five.details.episodes.every((e: any) => e.surprises === 0 && e.loglik !== null));
+	assert.ok(mean(five.details) < mean(a.details) - 0.1, `die ×5: ${mean(five.details)} against ${mean(a.details)}`);
+	// a deleted rule (the die rules gone): the gym's deaths are answers the program cannot give
+	const gone = await run(navCatalog((d) => {
+		const f = join(d, "nav_domain.llp");
+		writeFileSync(f, readFileSync(f, "utf8").split("\n").filter((l) => !l.includes("die_") && !l.includes("claims the robot")).join("\n"));
+	}), 10);
+	assert.ok(gone.details.episodes.filter((e: any) => e.loglik === null).length >= 5);
+	assert.match(gone.content[0].text, /zero-probability episodes ([5-9]|10)\/10/);
+});
+
+// rddl-worlds B, the architect's ruling: loop.sh --seed takes a domain package as well (its program, included
+// files, host and manifest), copied whole as a catalog of its own; the single-file seed stays
+test("loop.sh --seed PKG_DIR: the package whole in DIR/seed/domains/NAME/, its program served there; a directory without a manifest is refused", () => {
+	const run = (dir: string, ...args: string[]) => {
+		const r = spawnSync(join(HERE, "..", "loop.sh"), ["--scratch", dir, ...args], {
+			encoding: "utf8",
+			env: { ...process.env, METIS_LOOP_PI: join(HERE, "stub", "pi"), MODEL: "ollama/metis-gemma4-e4b-cpu", METIS_CONFIG: "",
+				METIS_LOOP_SDK_PY: process.env.TEST_SDK_PY ?? join(PKGS, ".venv", "bin", "python"), METIS_LOOP_TAKE_INTO: "" },
+		});
+		return { code: r.status, out: r.stdout ? JSON.parse(r.stdout) : null, err: r.stderr };
+	};
+	const src = join(mkdtempSync(join(tmpdir(), "loop-pkgsrc-")), "pigs");
+	mkdirSync(join(src, "build"), { recursive: true });
+	writeFileSync(join(src, "domain.yaml"), "display: the pigs\nprogram: pigs.llp\n");
+	writeFileSync(join(src, "pigs.llp"), 'catalog pigs 1.\ninclude "pigs_rules.llp".\n');
+	writeFileSync(join(src, "pigs_rules.llp"), "catalog pigs-rules 1.\n");
+	writeFileSync(join(src, "build", "pigs.metis"), "a bundle\n");
+	const dir = mkdtempSync(join(tmpdir(), "loop-pkgseeded-"));
+	const a = run(dir, "--seed", src + "/");
+	assert.equal(a.code, 0, a.err);
+	const at = join(dir, "seed", "domains", "pigs");
+	assert.equal(a.out.env.METIS_LOOP_LLP, join(at, "pigs.llp"));                     // served where its includes resolve
+	assert.deepEqual(readdirSync(at).sort(), ["domain.yaml", "pigs.llp", "pigs_rules.llp"]); // no build/
+	assert.ok(existsSync(join(dir, "seed", "tools", "intents.py")));
+	assert.deepEqual(JSON.parse(readFileSync(join(dir, "seed.json"), "utf8")), { seed: src, name: "pigs", package: true });
+	assert.equal(run(dir, "--seed", src).code, 0);                                      // the same package again: the same run
+	const bare = mkdtempSync(join(tmpdir(), "loop-pkgbare-"));
+	assert.match(run(mkdtempSync(join(tmpdir(), "loop-pkgseeded-")), "--seed", bare).err, /a directory seed is a domain package \(its domain.yaml\)/);
+});
+
+test("example/seeded.ts on a package (nav): served whole with its include and host, measured, edited, taken whole", { skip: !hasGym && "no metis-agent or pyRDDLGym" }, () => {
+	const dir = mkdtempSync(join(tmpdir(), "loop-seeded-nav-"));
+	const r = spawnSync(join(PKGS, "metis-agentic-loop", "node", "bin", "node"),
+		["--experimental-strip-types", "--no-warnings", join(HERE, "..", "example", "seeded.ts"), join(PKGS, "metis-catalog", "domains", "nav"), dir], {
+		encoding: "utf8", timeout: 300000,
+		env: { ...process.env, METIS_LOOP_METIS: process.env.REAL_METIS ?? join(PKGS, ".venv", "bin", "metis"),
+			METIS_LOOP_SDK_PY: process.env.TEST_SDK_PY ?? join(PKGS, ".venv", "bin", "python"), METIS_LOOP_AGENT_PY: AGENT_PY },
+	});
+	const out = JSON.parse(readFileSync(join(dir, "seeded.json"), "utf8"));
+	assert.ok(out.ok, `${JSON.stringify(out.checks)}\n${r.stdout.slice(-3000)}`);
+	assert.equal(out.gates, 3);                                                // served (the package), edit, take
+	for (const c of ["the package came whole, every file byte for byte", "its episodes are measured, the likelihood per action",
+		"the same seeds measure the same", "the target has every other file of the package"])
+		assert.equal(out.checks[c], true, c);
 });

@@ -12,6 +12,8 @@ The loop, in order:
 
 A seeded start (the task names a seed program) skips formalize: the seed is the person's program. Apply it with `catalog_apply` what=served, and never change its rules unless the person asks and approves the diff.
 
+A domain without intents (domain_open names no intent verb: a world whose program acts, an RDDL world whose host is a simulator) is exercised through its world, not through intents: `domain_ports` (what its host observes, derives and acts, its gym), `domain_world` (a scenario, in the names domain_ports gives), `domain_clock`, and `domain_episodes` (seeded episodes measured: the outcomes, the program's likelihood of what the world did, the surprises, the mismatched atoms). Record what they show, each surprise and the likelihood as measured; do not fix it with an extension or a weight. Change the program only when it cannot run against its host, and say why.
+
 A small change to a file the catalog already has goes through `catalog_edit`: a comment, a header line, a sentence of the README, a value in domain.yaml or intent.yaml, one rule's text. Give the file's exact text as old_string and its replacement as new_string; every other byte stays. Never formalize or revise for such a change: they reprint the whole program, and its comments are lost.
 
 Rules: call one tool at a time and read its result. Copy names and numbers exactly as the results print them; never invent an atom, an event or a number. When the person steers, follow them. Say briefly what you did and what you will do next.
