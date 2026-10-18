@@ -588,14 +588,14 @@ test("metis-domain: an RDDL world (nav) opens with no verbs; its program acts, t
 
 // rddl-worlds s-242c7c3f step 1 (B): a world without intents exercised through its ports, world lines and
 // measured episodes (nav against its gym; scripted, no model)
-function navCatalog(edit?: (dir: string) => void): string {
-	const r = mkdtempSync(join(tmpdir(), "loop-nav-"));
+function navCatalog(edit?: (dir: string) => void, name = "nav"): string {
+	const r = mkdtempSync(join(tmpdir(), `loop-${name}-`));
 	cpSync(join(PKGS, "metis-catalog", "tools"), join(r, "tools"), { recursive: true, filter: (s) => !s.includes("__pycache__") });
-	cpSync(join(PKGS, "metis-catalog", "domains", "nav"), join(r, "domains", "nav"), { recursive: true, filter: (s) => !/\/(build|records)(\/|$)/.test(s) });
-	edit?.(join(r, "domains", "nav"));
+	cpSync(join(PKGS, "metis-catalog", "domains", name), join(r, "domains", name), { recursive: true, filter: (s) => !/\/(build|records)(\/|$)/.test(s) });
+	edit?.(join(r, "domains", name));
 	return r;
 }
-async function openNav(cat: string) {
+async function openNav(cat: string, name = "nav") {
 	env(false);
 	Object.assign(process.env, {
 		METIS_CATALOG: cat, METIS_LOOP_METIS: process.env.REAL_METIS!, METIS_LOOP_RECORDS: "",
@@ -604,7 +604,7 @@ async function openNav(cat: string) {
 	});
 	const p = fakePi();
 	domain(p.api);
-	await p.tools.get("domain_open").execute("o", { domain: "nav" });
+	await p.tools.get("domain_open").execute("o", { domain: name });
 	return p;
 }
 
@@ -667,6 +667,25 @@ test("metis-domain: domain_episodes — 20 seeded nav episodes, deterministic, n
 	}), 10);
 	assert.ok(gone.details.episodes.filter((e: any) => e.loglik === null).length >= 5);
 	assert.match(gone.content[0].text, /zero-probability episodes ([5-9]|10)\/10/);
+});
+
+// rddl-worlds step 3 (opus's finding 8): an observing world (wildfire: the host acts, the program sends no action)
+// was "0 scored, zero-probability episodes 0/N" beside a surprise in every episode; its beats are scored by
+// their reading now, and the stall's p = 0 makes the episode impossible
+test("metis-domain: domain_episodes on an observing world (wildfire) scores its beats by the reading; the stall is a zero-probability episode", { skip: !hasGym && "no metis-agent or pyRDDLGym" }, async () => {
+	const p = await openNav(navCatalog(undefined, "wildfire"), "wildfire");
+	try {
+		const d = await p.tools.get("domain_episodes").execute("e", { n: 2, seed: 1, max_beats: 4 });
+		const t = d.content[0].text;
+		assert.equal(d.details.measure, "outcome");
+		assert.ok(d.details.episodes.every((e: any) => e.scored === 0 && e.idle.scored > 0 && e.idle.zero > 0 && e.loglik === null));
+		assert.match(t, /per action \(the program sent none: the host acts, an observing world\): 0 scored;/);
+		assert.match(t, /zero-probability episodes 2\/2/);
+		assert.match(t, /\nbeats with no action the program sent, P\(the host's reading \| the beat's last input\): \d+ scored; p = 0 in \d+ beat\(s\) of 2\/2 episode\(s\)\n/);
+		assert.match(t, /seed 1: [^;]*, \d+ beats with no action \(\d+ with p = 0\)/);
+	} finally {
+		await p.emit("session_shutdown", {}, {});
+	}
 });
 
 // rddl-worlds B, the architect's ruling: loop.sh --seed takes a domain package as well (its program, included

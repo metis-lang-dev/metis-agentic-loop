@@ -261,6 +261,7 @@ export default function (pi: ExtensionAPI) {
 	type Episode = {
 		seed: number; beats: number; over: boolean; loglik: number | null; scored: number; unscored: number; zero: number; rare: number;
 		surprises: number; reward?: number; step?: number; done?: boolean; counts: Record<string, number>;
+		idle: { scored: number; loglik: number; zero: number }; // beats with no action the program sent, in a world that maps actions
 	};
 	type Low = { seed: number; beat: number; p: number; what: string };
 	const RARE = 0.05;
@@ -268,7 +269,9 @@ export default function (pi: ExtensionAPI) {
 	// N episodes, each a reset with its seed (the program's sampler and the host's gym alike), the world lines,
 	// then scored beats to the episode's end: the measure, not the exercise — its surprises are counted, not steered in.
 	// The likelihood: per action the program sent, P(the world's answer | that action) (the domain agent's `outcomes`:
-	// an RDDL world); for a host with no actions, per beat, P(the host's reading | the beat's start)
+	// an RDDL world); for a host with no actions, per beat, P(the host's reading | the beat's start). A beat of an
+	// action world in which the program sent no action (every beat of an observing world, where the host acts; nav
+	// once the robot is gone) is scored by its reading, apart: its p = 0 makes the episode impossible as well
 	async function episodes(n: number, seed0: number, world: string[] | undefined, maxBeats: number) {
 		if (!agent) throw new Error("no domain is open: call domain_open first");
 		const eps: Episode[] = [];
@@ -286,12 +289,23 @@ export default function (pi: ExtensionAPI) {
 				const e = w.find((x) => x.error);
 				if (e) throw new Error(`episode seed ${seed}: the world lines were refused: ${e.error}`);
 			}
-			const ep: Episode = { seed, beats: 0, over: false, loglik: 0, scored: 0, unscored: 0, zero: 0, rare: 0, surprises: 0, counts: {} };
+			const ep: Episode = { seed, beats: 0, over: false, loglik: 0, scored: 0, unscored: 0, zero: 0, rare: 0, surprises: 0, counts: {},
+				idle: { scored: 0, loglik: 0, zero: 0 } };
 			const score = (p: number | null | undefined, beat: number, what: string) => {
 				if (typeof p !== "number") return void ep.unscored++;
 				ep.scored++;
 				if (p <= 0) ep.zero++;
 				else if (ep.loglik !== null) ep.loglik += Math.log(p);
+				if (p < RARE) ep.rare++;
+				if (p < 1) low.push({ seed, beat, p, what });
+			};
+			const idle = (p: number | null | undefined, beat: number, what: string) => {
+				if (typeof p !== "number") return;
+				ep.idle.scored++;
+				if (p <= 0) {
+					ep.idle.zero++;
+					ep.zero++;
+				} else ep.idle.loglik += Math.log(p);
 				if (p < RARE) ep.rare++;
 				if (p < 1) low.push({ seed, beat, p, what });
 			};
@@ -303,7 +317,10 @@ export default function (pi: ExtensionAPI) {
 				const sc = c.score;
 				if (sc) {
 					ep.counts = sc.counts ?? ep.counts;
-					if (Array.isArray(sc.outcomes)) {
+					if (Array.isArray(sc.outcomes) && !sc.outcomes.length) {
+						measure = measure ?? "outcome";
+						idle(sc.likelihood, c.beat, `a beat with no action the program sent: the host's reading${sc.mismatch?.length ? ` (against the program's state: ${JSON.stringify(sc.mismatch)})` : ""}`);
+					} else if (Array.isArray(sc.outcomes)) {
 						measure = "outcome";
 						for (const o of sc.outcomes)
 							score(o.p, c.beat, `the program drew ${o.event}; the world answered ${(o.answered_by ?? []).join(" or ") || "none of its alternatives"} (${Object.keys(o.action ?? {}).join(" ")})`);
@@ -353,12 +370,21 @@ export default function (pi: ExtensionAPI) {
 		if (notOver) rows.push(`${notOver} episode(s) did not end within the beat cap`);
 		// the program's likelihood of what the world did
 		const scored = sum(eps.map((e) => e.scored)), unscored = sum(eps.map((e) => e.unscored));
-		const what = measure === "outcome" ? "P(the world's answer | the action the program sent), per action"
+		const what = measure === "outcome" ? "P(the world's answer | the action the program sent), per action" +
+			(scored ? "" : " (the program sent none: the host acts, an observing world)")
 			: measure === "beat" ? "P(the host's reading | the beat's start), per beat (the host maps no actions)" : "nothing scored";
 		rows.push(`likelihood under the program, ${what}: ${scored} scored` + (unscored ? `, ${unscored} unscored` : "") +
 			(scored ? `; mean log per scored ${f(sum(fin) / Math.max(1, sum(eps.filter((e) => e.loglik !== null).map((e) => e.scored))))}` : "") +
 			(fin.length ? `; per episode (sum of logs) mean ${f(sum(fin) / fin.length)}, min ${f(Math.min(...fin))}, max ${f(Math.max(...fin))}` : "") +
 			`; zero-probability episodes ${eps.filter((e) => e.loglik === null).length}/${eps.length}`);
+		const idleN = sum(eps.map((e) => e.idle.scored));
+		if (idleN) {
+			const z = eps.filter((e) => e.idle.zero);
+			const ok = eps.filter((e) => !e.idle.zero);
+			rows.push(`beats with no action the program sent, P(the host's reading | the beat's last input): ${idleN} scored` +
+				(ok.length && sum(ok.map((e) => e.idle.scored)) ? `; mean log per beat ${f(sum(ok.map((e) => e.idle.loglik)) / sum(ok.map((e) => e.idle.scored)))} (episodes without a p = 0 beat)` : "") +
+				`; p = 0 in ${sum(eps.map((e) => e.idle.zero))} beat(s) of ${z.length}/${eps.length} episode(s)`);
+		}
 		rows.push(`surprises (readings the program gives zero probability) ${sum(eps.map((e) => e.surprises))} in ${eps.filter((e) => e.surprises).length} episode(s); ` +
 			`rare (likelihood < ${RARE}) ${sum(eps.map((e) => e.rare))} in ${eps.filter((e) => e.rare).length} episode(s)`);
 		if (mism.size)
@@ -373,7 +399,8 @@ export default function (pi: ExtensionAPI) {
 			const held = Object.entries(e.counts).filter(([, v]) => v > 0).map(([a, v]) => (v === 1 ? a : `${a} ${v}`));
 			return held.length ? `ends with ${held.join(" ")}` : "ends with none of the reported atoms";
 		};
-		rows.push("per episode: " + eps.map((e) => `seed ${e.seed}: ${ends(e)}, ${e.beats} beats, ${e.scored} scored, log ${e.loglik === null ? "−∞" : f(e.loglik)}${e.reward !== undefined ? `, reward ${e.reward}` : ""}`).join("; "));
+		rows.push("per episode: " + eps.map((e) => `seed ${e.seed}: ${ends(e)}, ${e.beats} beats, ${e.scored} scored, log ${e.loglik === null ? "−∞" : f(e.loglik)}${e.reward !== undefined ? `, reward ${e.reward}` : ""}` +
+			(e.idle.scored ? `, ${e.idle.scored} beats with no action (${e.idle.zero ? `${e.idle.zero} with p = 0` : `log ${f(e.idle.loglik)}`})` : "")).join("; "));
 		rows.push(`The domain is now at the end of episode seed ${seed0 + n - 1}; domain_open starts it afresh.`);
 		return rows.join("\n");
 	}
