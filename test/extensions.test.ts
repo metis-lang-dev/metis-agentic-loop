@@ -310,7 +310,7 @@ test("example/seeded.ts: a fiction program seeded, applied as it is, opened, run
 	const dir = mkdtempSync(join(tmpdir(), "loop-seeded-e2e-"));
 	const r = spawnSync(join(PKGS, "metis-agentic-loop", "node", "bin", "node"),
 		["--experimental-strip-types", "--no-warnings", join(HERE, "..", "example", "seeded.ts"),
-			join(PKGS, "metis-catalog", "domains", "fiction", "love_triangle.llp"), dir], {
+			join(PKGS, "metis-catalog", "domains", "love_triangle", "love_triangle.llp"), dir], {
 		encoding: "utf8", timeout: 240000,
 		env: { ...process.env, METIS_LOOP_METIS: process.env.REAL_METIS ?? join(PKGS, ".venv", "bin", "metis"),
 			METIS_LOOP_SDK_PY: process.env.TEST_SDK_PY ?? join(PKGS, ".venv", "bin", "python"), METIS_LOOP_AGENT_PY: AGENT_PY },

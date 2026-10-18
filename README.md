@@ -100,7 +100,7 @@ The run's catalog is a scratch one (`tools/`, the plant beside the lamp), so cop
 
 ## A seeded start
 
-`loop.sh --scratch DIR --seed PATH.llp [--name NAME]` starts from an existing program instead of prose: the six fiction programs (`metis-catalog/domains/fiction/*.llp`) become catalog domains this way.
+`loop.sh --scratch DIR --seed PATH.llp [--name NAME]` starts from an existing program instead of prose: the six fiction programs (once `metis-catalog/domains/fiction/*.llp`) became catalog domains this way (fiction-port step 2: `domains/love_triangle/`, `tragedy/`, `herstory/`, `talespin/`, `three_pigs/`, `three_pigs_connectives/`).
 - The REPL serves a copy of the seed (`DIR/seed/NAME.llp`); `DIR/seed.json` records it. NAME defaults to the file's stem with `-` as `_` (`3lp` needs `--name`). A run is seeded once: another seed needs a new DIR.
 - pi's first message is the seeded task (`prompts/seed-task.md`, also `DIR/seed/task.md`; over `--mode rpc` the client sends it):
   1. read the program;
