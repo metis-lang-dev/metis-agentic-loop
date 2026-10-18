@@ -553,3 +553,27 @@ test("metis-domain: a domain with no intents (love_triangle) opens with no verbs
 	assert.match((await p.tools.get("domain_state").execute("s", { domain: "love_triangle" })).content[0].text, /anger\(/);
 	await p.emit("session_shutdown", {}, {});
 });
+
+// an RDDL world (rddl-worlds s-242c7c3f step 1): nav, a host with no intents over the IPPC 2011
+// Navigation gym, opens through domain_open on the real domain agent; its program moves the robot,
+// the gym answers, the clock runs to the gym's horizon. Skipped where metis-agent or pyRDDLGym is missing
+const hasGym = hasAgent && spawnSync(process.env.METIS_RDDL_PY ?? join(PKGS, ".venv", "bin", "python"), ["-c", "import pyRDDLGym"]).status === 0;
+test("metis-domain: an RDDL world (nav) opens with no verbs; its program acts, the gym answers to the horizon", { skip: !hasGym && "no metis-agent or pyRDDLGym" }, async () => {
+	env(false);
+	Object.assign(process.env, {
+		METIS_CATALOG: join(PKGS, "metis-catalog"), METIS_LOOP_METIS: process.env.REAL_METIS!, METIS_LOOP_RECORDS: "",
+		METIS_LOOP_AGENT_PY: AGENT_PY, METIS_LOOP_AGENT_DIR: join(AGENT, "py"),
+	});
+	const p = fakePi();
+	domain(p.api);
+	try {
+		const o = await p.tools.get("domain_open").execute("o", { domain: "nav" });
+		assert.match(o.content[0].text, /nav is open at beat 0; 0 intent verb\(s\)/);
+		const c = await p.tools.get("domain_clock").execute("k", { n: 50 });
+		assert.match(c.content[0].text, /(mv|die)_(north|south|east|west)/);
+		assert.match(c.content[0].text, /over|episode/);
+		assert.match((await p.tools.get("domain_state").execute("s", { domain: "nav" })).content[0].text, /stage /);
+	} finally {
+		await p.emit("session_shutdown", {}, {});
+	}
+});
