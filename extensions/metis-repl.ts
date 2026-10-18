@@ -200,6 +200,9 @@ export default function (pi: ExtensionAPI) {
 		if (!NAME.test(p.domain)) throw new Error(`domain ${JSON.stringify(p.domain)}: lowercase letters, digits, _`);
 		const root = writeRoot();
 		const d = catalog.get(p.domain, root); // the loop's catalog has it (the SDK's error otherwise)
+		const rel = `domains/${p.domain}/${p.path}`;
+		if (!existsSync(join(d.dir, p.path)) && refused.get(resolve(root))?.has(rel))
+			throw new Error(`${p.path} was never written: the person refused its proposal. Send it again through catalog_apply with only the fix; its gate shows what changed since`);
 		const e: catalog.Edit = { path: p.path, old_string: p.old_string, new_string: p.new_string, replace_all: !!p.replace_all };
 		return { tool: "catalog_edit", domain: p.domain, root, reopen: !!d.program && resolve(d.dir, p.path) === resolve(d.program),
 			files: catalog.planEdit(p.domain, e, root, since(root)), run: () => catalog.edit(p.domain, e, root) };

@@ -8,7 +8,7 @@ The REPL serves an existing program, the seed: `{{SEED}}`. Make it the catalog d
    - every claim has a source you can name: a rule, a header line, or an output shown in this session;
    - one run is one sample: never say what "always" or "only" happens from it;
    - quote names exactly as the program writes them (its `catalog` line, its atoms).
-   The person approves it. To fix what the person points out, use `catalog_edit` with path=README.md and the exact old and new text; never send the whole README again.
+   The person approves it. To fix what the person points out: while the README is not yet written (the person refused it), send what=readme again with only that fix, and the gate shows what changed since; once it is written, use `catalog_edit` with path=README.md and the exact old and new text.
 6. When the person asks: `catalog_take` with domain={{NAME}}. It brings the domain into the person's catalog, with its README.
 
 Say briefly what you did after each step.

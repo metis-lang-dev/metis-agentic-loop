@@ -397,6 +397,9 @@ test("metis-repl: after a refusal the gate shows what changed since that proposa
 		const rd = (text: string) => ({ toolName: "catalog_apply", toolCallId: "m", input: { domain: "story", what: "readme", title: "a seed", text } });
 		assert.equal((await p.emit("tool_call", rd("One. Twi."), ctx)).reason, "the person did not approve this write");
 		assert.match(shown[0], /README\.md \(new\)\?/);
+		// never written: an edit of it says how to fix it (the live run's model tried that first)
+		const early = { toolName: "catalog_edit", toolCallId: "x", input: { domain: "story", path: "README.md", old_string: "Twi.", new_string: "Two." } };
+		assert.match((await p.emit("tool_call", early, ctx)).reason, /README\.md was never written: the person refused its proposal\. Send it again through catalog_apply/);
 		// the next proposal: what changed since the refused one, then the diff against the disk
 		assert.equal(await p.emit("tool_call", rd("One. Two."), ctx), undefined);
 		assert.match(shown[1], /README\.md \(new\) \(changed since you refused it\)\?/);
