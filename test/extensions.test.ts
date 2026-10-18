@@ -63,12 +63,16 @@ test("metis-repl: the wire's verbs become tools, its words or the finding's mark
 	const p = fakePi();
 	repl(p.api);
 	await p.emit("session_start", {}, ui(true));
-	assert.deepEqual([...p.tools.keys()].sort(), ["catalog_apply", "catalog_take", "repl_formalize", "repl_gate", "repl_show", "repl_state", "repl_text"]);
-	assert.match(p.tools.get("repl_state").description, /the domain's current state/);
-	assert.match(p.tools.get("repl_text").description, /finding: metispy/);
-	const r = await p.tools.get("repl_text").execute("c1", { arg: "a desk lamp" });
-	assert.equal(r.content[0].text, "text a desk lamp");
-	await p.emit("session_shutdown", {}, {});
+	try {
+		assert.deepEqual([...p.tools.keys()].sort(),
+			["catalog_apply", "catalog_edit", "catalog_take", "repl_formalize", "repl_gate", "repl_show", "repl_state", "repl_text"]);
+		assert.match(p.tools.get("repl_state").description, /the domain's current state/);
+		assert.match(p.tools.get("repl_text").description, /finding: metispy/);
+		const r = await p.tools.get("repl_text").execute("c1", { arg: "a desk lamp" });
+		assert.equal(r.content[0].text, "text a desk lamp");
+	} finally {
+		await p.emit("session_shutdown", {}, {}); // a failed assert must not leave the REPL child holding the run open
+	}
 });
 
 test("metis-repl: the apply gate — no person, a refusal, an ungated candidate block; an approval writes and reopens", async () => {
@@ -140,8 +144,8 @@ test("metis-repl: catalog_apply through the loop SDK — the gate shows its dry-
 	assert.equal(await p.emit("tool_call", it, watch), undefined);
 	assert.match(shown[1], /domains\/lamp\/intent\.yaml \(new\)[\s\S]*SWITCH_ON/);
 	const i = await p.tools.get("catalog_apply").execute("i", it.input);
-	assert.deepEqual([...i.details.written].sort(), ["domains/lamp/domain.yaml", "domains/lamp/intent.yaml",
-		"domains/lamp/intent/lamp-prompt.txt", "domains/lamp/intent/lamp-spoken.txt", "domains/lamp/intent/lamp.gbnf"]);
+	assert.deepEqual([...i.details.written].sort(), ["domains/lamp/domain.yaml", "domains/lamp/intent.yaml",   // no -spoken.txt: it is empty
+		"domains/lamp/intent/lamp-prompt.txt", "domains/lamp/intent/lamp.gbnf"]);
 	assert.match(readFileSync(join(d, "domain.yaml"), "utf8"), /^program: lamp\.llp\nintent: \{spec: intent\.yaml\}\n$/);
 	assert.match(readFileSync(join(d, "intent", "lamp.gbnf"), "utf8"), /SWITCH_ON/);
 	// the SDK's refusal reaches the person's gate as the reason
@@ -217,13 +221,16 @@ test("metis-repl: what=served writes the program the REPL serves, as it is (a se
 		assert.match(r.content[0].text, /^applied: domains\/story\/story\.llp, domains\/story\/domain\.yaml\./);
 		assert.equal(readFileSync(join(cat, "domains", "story", "story.llp"), "utf8"), text);   // byte for byte
 		assert.doesNotMatch(readFileSync(process.env.STUB_LOG!, "utf8"), /"op": "show"/);       // no candidate asked for
-		// what=readme: a gated README for a known domain, the text as given
-		const rd = { toolName: "catalog_apply", toolCallId: "m", input: { domain: "story", what: "readme", text: "# story — a seed\n\nFrom its header." } };
+		// what=readme: a gated README for a known domain, the model's title and summary, the rest the SDK's
+		const rd = { toolName: "catalog_apply", toolCallId: "m", input: { domain: "story", what: "readme", title: "a seed", text: "From its header." } };
 		assert.equal(await p.emit("tool_call", rd, watch), undefined);
-		assert.match(shown[1], /domains\/story\/README\.md \(new\)[\s\S]*\+# story — a seed/);
+		assert.match(shown[1], /domains\/story\/README\.md \(new\)[\s\S]*\+# story — a seed\n\+\n\+From its header\.\n/);
 		await p.tools.get("catalog_apply").execute("m", rd.input);
-		assert.equal(readFileSync(join(cat, "domains", "story", "README.md"), "utf8"), "# story — a seed\n\nFrom its header.\n");
-		assert.match((await p.emit("tool_call", { ...rd, input: { domain: "story", what: "readme" } }, watch)).reason, /text is the README/);
+		const readme = readFileSync(join(cat, "domains", "story", "README.md"), "utf8");
+		assert.ok(readme.startsWith("# story — a seed\n\nFrom its header.\n\n**Where it came from:**"));
+		assert.match(readme, /```text\n% a seed: its header\n```/);                              // the header, verbatim
+		assert.match(readme, /`metisc --run story\.llp` runs the case its `#` lines give:\n\n```text\n#init a 1\n```/);
+		assert.match((await p.emit("tool_call", { ...rd, input: { domain: "story", what: "readme" } }, watch)).reason, /text is the summary paragraph/);
 		assert.match((await p.emit("tool_call", { ...rd, input: { domain: "nosuch", what: "readme", text: "x" } }, watch)).reason, /its README follows its program/);
 	} finally {
 		process.env.METIS_LOOP_LLP = "";
@@ -317,7 +324,148 @@ test("example/seeded.ts: a fiction program seeded, applied as it is, opened, run
 	});
 	const out = JSON.parse(readFileSync(join(dir, "seeded.json"), "utf8"));
 	assert.ok(out.ok, `${JSON.stringify(out.checks)}\n${r.stdout.slice(-3000)}`);
-	assert.equal(out.gates, 4);                                                           // served, intents, readme, take
+	assert.equal(out.gates, 4);                                    // served, edit, readme, take (no commands: no intents, no gate)
+});
+
+// loop-fixes s-855d8067: catalog_edit, the gate after a refusal, a world with no commands, display/line
+const SDK_PY = () => process.env.TEST_SDK_PY ?? join(PKGS, ".venv", "bin", "python");
+const HAS_METISC = (() => {
+	const r = spawnSync(SDK_PY(), ["-c", "from metis_loop_sdk import catalog; print(catalog.metisc() or '')"], { encoding: "utf8" });
+	return !!r.stdout?.trim();
+})();
+if (!HAS_METISC && process.env.TEST_REQUIRE_METISC) throw new Error("TEST_REQUIRE_METISC: the loop SDK finds no metisc (METISC)");
+
+// a seed domain in the loop's catalog, its program served by the REPL
+const STORY = "% a seed: its header, line one\n% line two\ncatalog story 1.\nlayers (story).\nstages (s).\nnamespace w produce (story).\n" +
+	"pred a : w.\npred b : w.\nstage s {\n  %% a becomes b.\n  ab [story] : a -o b.\n}\n#init a 1\n";                 // metisc: no diagnostic
+function story(cat: string, text = STORY): string {
+	const d = join(cat, "domains", "story");
+	mkdirSync(d, { recursive: true });
+	writeFileSync(join(d, "story.llp"), text);
+	writeFileSync(join(d, "domain.yaml"), "program: story.llp\n");
+	cpSync(join(PKGS, "metis-catalog", "tools"), join(cat, "tools"), { recursive: true });
+	return d;
+}
+const watching = (answers: boolean[] = []) => {
+	const shown: string[] = [];
+	return { shown, ctx: { hasUI: true, ui: { confirm: async (t: string, b: string) => (shown.push(`${t}\n${b}`), answers.length ? answers.shift()! : true), notify: () => {} } } };
+};
+
+test("metis-repl: catalog_edit — one exact edit of the program behind the gate, every comment kept, the REPL serves it again; its refusals", { skip: !HAS_METISC && "no metisc" }, async () => {
+	const cat = env(true);
+	const d = story(cat);
+	process.env.METIS_LOOP_LLP = join(d, "story.llp");
+	const p = fakePi();
+	repl(p.api);
+	await p.emit("session_start", {}, ui(true));
+	try {
+		const { shown, ctx } = watching();
+		const input = { domain: "story", path: "story.llp", old_string: "% line two", new_string: "% line two, edited" };
+		const ed = { toolName: "catalog_edit", toolCallId: "d", input };
+		assert.equal(await p.emit("tool_call", ed, ctx), undefined);
+		assert.ok(shown[0].startsWith(`Edit in the catalog ${cat}: domains/story/story.llp?\n`));
+		assert.match(shown[0], /^-% line two\n\+% line two, edited\n/m);
+		assert.equal(readFileSync(join(d, "story.llp"), "utf8"), STORY);                        // the dry run wrote nothing
+		await assert.rejects(p.tools.get("catalog_apply").execute("d", { domain: "story", what: "served" }), /not approved/);
+		assert.equal(await p.emit("tool_call", ed, ctx), undefined);                           // (the plan apply refused is gone)
+		const r = await p.tools.get("catalog_edit").execute("d", input);
+		assert.equal(r.content[0].text, `applied: domains/story/story.llp. The REPL now serves ${join(d, "story.llp")}.`);
+		assert.equal(readFileSync(join(d, "story.llp"), "utf8"), STORY.replace("% line two", "% line two, edited"));   // every other byte
+		await assert.rejects(p.tools.get("catalog_edit").execute("z", input), /not approved/);  // no gate, no write
+		const refuse = async (i: object, why: RegExp) =>
+			assert.match((await p.emit("tool_call", { toolName: "catalog_edit", toolCallId: "r", input: { domain: "story", path: "story.llp", ...i } }, ctx)).reason, why);
+		await refuse({ old_string: "% line two\n", new_string: "x" }, /not in it/);
+		await refuse({ old_string: "story", new_string: "tale" }, /occurs \d+ times/);
+		await refuse({ path: "../other/x.llp", old_string: "a", new_string: "b" }, /not inside the domain/);
+		await refuse({ old_string: "ab [story] : a -o b.", new_string: "ab [story] : a -o bb." }, /adds 1 diagnostic[\s\S]*undeclared predicate 'bb'/);
+		await refuse({ domain: "nosuch", old_string: "a", new_string: "b" }, /nosuch/);
+		assert.equal(shown.length, 2);                                                          // a refusal asks the person nothing
+	} finally {
+		process.env.METIS_LOOP_LLP = "";
+		await p.emit("session_shutdown", {}, {});
+	}
+});
+
+test("metis-repl: after a refusal the gate shows what changed since that proposal; a README fix is catalog_edit", async () => {
+	const cat = env(true);
+	const d = story(cat);
+	const p = fakePi();
+	repl(p.api);
+	await p.emit("session_start", {}, ui(true));
+	try {
+		const { shown, ctx } = watching([false, true, false, true]);
+		const rd = (text: string) => ({ toolName: "catalog_apply", toolCallId: "m", input: { domain: "story", what: "readme", title: "a seed", text } });
+		assert.equal((await p.emit("tool_call", rd("One. Twi."), ctx)).reason, "the person did not approve this write");
+		assert.match(shown[0], /README\.md \(new\)\?/);
+		// the next proposal: what changed since the refused one, then the diff against the disk
+		assert.equal(await p.emit("tool_call", rd("One. Two."), ctx), undefined);
+		assert.match(shown[1], /README\.md \(new\) \(changed since you refused it\)\?/);
+		assert.match(shown[1], /── domains\/story\/README\.md: since the proposal you refused ──\n--- refused\/domains\/story\/README\.md\n\+\+\+ b\/domains\/story\/README\.md\n@@[^\n]*\n # story — a seed\n \n-One\. Twi\.\n\+One\. Two\.\n/);
+		assert.match(shown[1], /── domains\/story\/README\.md: against the file on disk ──\n--- a\/domains\/story\/README\.md/);
+		await p.tools.get("catalog_apply").execute("m", rd("One. Two.").input);                // approved: written, forgotten
+		const before = readFileSync(join(d, "README.md"), "utf8");
+		assert.equal((await p.emit("tool_call", rd("One. Three."), ctx)).reason, "the person did not approve this write");
+		assert.doesNotMatch(shown[2], /refused it/);                                             // the refusal before was answered
+		assert.equal(await p.emit("tool_call", rd("One. Three."), ctx), undefined);
+		assert.match(shown[3], /README\.md \(as you refused it\)\?/);                         // the same text again: said so
+		// a fix the person points out: one exact edit of the README, not the whole text again
+		const fix = { toolName: "catalog_edit", toolCallId: "f", input: { domain: "story", path: "README.md", old_string: "One. Two.", new_string: "One, two." } };
+		assert.equal(await p.emit("tool_call", fix, ctx), undefined);
+		assert.match(shown[4], /^-One\. Two\.\n\+One, two\.\n/m);
+		await p.tools.get("catalog_edit").execute("f", fix.input);
+		assert.equal(readFileSync(join(d, "README.md"), "utf8"), before.replace("One. Two.", "One, two."));
+	} finally {
+		await p.emit("session_shutdown", {}, {});
+	}
+});
+
+test("metis-repl: a world with no commands — what=intents writes no intent.yaml (the SDK's switch) and asks the person nothing; without the switch, UNKNOWN only", async () => {
+	const cat = env(true);
+	const d = story(cat);
+	const p = fakePi();
+	repl(p.api);
+	await p.emit("session_start", {}, ui(true));
+	const { shown, ctx } = watching();
+	const it = { toolName: "catalog_apply", toolCallId: "i", input: { domain: "story", what: "intents" } };
+	try {
+		process.env.METIS_CATALOG_INTENTLESS = "1";
+		assert.equal(await p.emit("tool_call", it, ctx), undefined);
+		assert.equal(shown.length, 0);
+		const r = await p.tools.get("catalog_apply").execute("i", it.input);
+		assert.match(r.content[0].text, /^no intent\.yaml: the world takes no commands/);
+		assert.ok(!existsSync(join(d, "intent.yaml")) && !existsSync(join(d, "intent")));
+		process.env.METIS_CATALOG_INTENTLESS = "0";
+		assert.equal(await p.emit("tool_call", it, ctx), undefined);
+		assert.match(shown[0], /domains\/story\/intent\.yaml \(new\)[\s\S]*\+# story's intents: the world takes no commands/);
+		assert.doesNotMatch(shown[0], /DRAFT|spoken\.txt/);                                     // not a draft; no empty file
+	} finally {
+		delete process.env.METIS_CATALOG_INTENTLESS;
+		await p.emit("session_shutdown", {}, {});
+	}
+});
+
+test("metis-repl: what=served takes display and line for the new domain's manifest", async () => {
+	const cat = env(true);
+	const seed = join(mkdtempSync(join(tmpdir(), "loop-seed-")), "story.llp");
+	writeFileSync(seed, STORY);
+	process.env.METIS_LOOP_LLP = seed;
+	const p = fakePi();
+	repl(p.api);
+	await p.emit("session_start", {}, ui(true));
+	try {
+		const { shown, ctx } = watching();
+		const sv = { toolName: "catalog_apply", toolCallId: "v", input: { domain: "story", what: "served", display: "the story", line: "an a that becomes a b" } };
+		assert.match((await p.emit("tool_call", { ...sv, input: { ...sv.input, line: "two\nlines" } }, ctx)).reason, /line is one line/);
+		assert.equal(await p.emit("tool_call", sv, ctx), undefined);
+		await p.tools.get("catalog_apply").execute("v", sv.input);
+		const mf = readFileSync(join(cat, "domains", "story", "domain.yaml"), "utf8");
+		assert.match(mf, /^display: the story$/m);
+		assert.match(mf, /^line: an a that becomes a b$/m);
+		assert.match(mf, /^program: story\.llp$/m);
+	} finally {
+		process.env.METIS_LOOP_LLP = "";
+		await p.emit("session_shutdown", {}, {});
+	}
 });
 
 test("metis-domain: J from intent.yaml, T from tools.json, the clock; a surprise is steered in", async () => {

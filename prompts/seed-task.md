@@ -1,10 +1,14 @@
-The REPL serves an existing program, the seed: `{{SEED}}`. Make it the catalog domain `{{NAME}}`, as the dog and the lamp are laid out. The program is the person's: do not change its rules. No formalize and no revise of it, unless the person asks for a change and approves its diff.
+The REPL serves an existing program, the seed: `{{SEED}}`. Make it the catalog domain `{{NAME}}`, as the dog and the lamp are laid out. The program is the person's: its rules stay as they are unless the person asks for a change. No formalize and no revise of it, ever: they reprint the program and drop its comments. A change the person asks for (a comment, a header line, one rule) is `catalog_edit` on `{{NAME}}.llp` with the exact old and new text, and the person approves its diff.
 
-1. `repl_state` and `repl_show` with arg llp: read what the program has (its atoms, rules, `#init` and `#query` lines, its header).
-2. `catalog_apply` with domain={{NAME}} what=served: the seed, as it is, becomes the domain's program, with a domain.yaml. The person approves the diff.
-3. Intents: `catalog_apply` with what=intents. It drafts the person's verbs from the program's commands (`cmd_*` atoms). A world without commands gets an intent.yaml that knows none (only UNKNOWN): the domain agent opens no domain without one. Say which it is.
+1. `repl_state` and `repl_show` with arg `base`: read what the program has (its atoms, rules, `#init` and `#query` lines, its header).
+2. `catalog_apply` with domain={{NAME}} what=served, display (the world's short name, like "the dog") and line (one line on what the world is): the seed, as it is, becomes the domain's program, with a domain.yaml. The person approves the diff.
+3. Intents: `catalog_apply` with what=intents. A world with commands (`cmd_*` atoms) gets its verbs drafted from them. A world without commands gets no intent.yaml, or one that knows only UNKNOWN: the result says which. Say which it is.
 4. Exercise: `domain_open` with domain={{NAME}}, then advance time (`domain_clock`) and read it (`domain_state`, `domain_events`). Say what the program does when it runs.
-5. A README: `catalog_apply` with domain={{NAME}} what=readme and text, the README's Markdown: a title line `# {{NAME}} — <what the world is>`, what the program tells, and where it came from — the program's header says its origin and versions; copy those, invent none. The person approves it.
+5. A README: `catalog_apply` with domain={{NAME}} what=readme, title (what the world is, after "{{NAME}} — ") and text (one summary paragraph: what the program tells). The SDK writes the rest from the files: where it came from, the program's header as it is, how to run it, the intents. In your paragraph:
+   - every claim has a source you can name: a rule, a header line, or an output shown in this session;
+   - one run is one sample: never say what "always" or "only" happens from it;
+   - quote names exactly as the program writes them (its `catalog` line, its atoms).
+   The person approves it. To fix what the person points out, use `catalog_edit` with path=README.md and the exact old and new text; never send the whole README again.
 6. When the person asks: `catalog_take` with domain={{NAME}}. It brings the domain into the person's catalog, with its README.
 
 Say briefly what you did after each step.

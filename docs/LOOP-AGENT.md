@@ -20,8 +20,11 @@ and the worked example.
   interfaces' own declarations. Nothing is written for pi that the interfaces do
   not declare, and nothing they declare is left out.
 - The one capability neither interface has is writing into the catalog. That
-  write is `catalog_apply`, behind the person's gate; `catalog_take`, behind the
-  same gate, takes a finished domain from the loop's catalog into the person's.
+  write is `catalog_apply`, behind the person's gate; `catalog_edit`, one exact
+  edit of a domain's file (old text → new, every other byte kept), and
+  `catalog_take`, which takes a finished domain from the loop's catalog into the
+  person's, are behind the same gate. pi's own edit tool stays off: it would
+  write past the gate, the SDK's checks and the roots.
 - **Host: pi** (`@earendil-works/pi-coding-agent`, pinned in this repository).
   - Built-in tools, context files, skills, prompt templates and MCP are all off.
   - The system prompt is the loop's own (`prompts/loop-system.md`).
@@ -47,6 +50,7 @@ AGENT-LOOP.md's steps, each with the tools it uses and the state it leaves behin
 | **apply** | the extension is written, gated | `catalog_apply` what=extension | `domains/<n>/extensions/<name>.llp` |
 | **re-exercise** | the domain is opened again on the catalog as it is now; the same situation must now be explained | `domain_open`, … | an explained record, or no surprise |
 | **seed** | a seeded start (`loop.sh --seed PATH.llp`): the REPL serves an existing program, and it becomes the domain's program as it is, gated; formalize and revise are skipped | `catalog_apply` what=served | the domain's program and `domain.yaml` |
+| **edit** | a small change to a file the catalog has (a comment, a header line, a README sentence, a value, one rule's text): the SDK's `edit`, old_string exactly once (or replace_all), the path inside the domain, a `.llp` edit adding no metisc diagnostic; never formalize or revise | `catalog_edit` | that one file |
 | **take** | when the person asks: the domain is taken from the loop's (scratch) catalog into the person's (`METIS_LOOP_TAKE_INTO`) through the SDK's `take`, with a README of the run and its bundle, gated, never a commit | `catalog_take` | `domains/<n>/` in the person's catalog |
 | **stop** | the person stops the run | (pi: abort) | the session file |
 
@@ -56,7 +60,7 @@ AGENT-LOOP.md's steps, each with the tools it uses and the state it leaves behin
 |---|---|
 | start | a prompt: the goal and the prose |
 | steer | `steer` (delivered after the current tool batch) or `follow_up` (after the run) |
-| approve | the `tool_call` gate on `catalog_apply` and `catalog_take`: `ctx.ui.confirm`, which the TUI shows and RPC forwards as `extension_ui_request` |
+| approve | the `tool_call` gate on `catalog_apply`, `catalog_edit` and `catalog_take`: `ctx.ui.confirm`, which the TUI shows and RPC forwards as `extension_ui_request`. A file the person refused shows, at its next proposal, the diff from the refused text first, then the diff against the disk |
 | stop | `abort` |
 
 **The later autonomous entry** (step 2): a served domain spills surprise records,
@@ -90,7 +94,7 @@ The kernel's formalize has its own repair rounds.
 
 | file | process | tools | glue |
 |---|---|---|---|
-| `metis-repl.ts` | one `metis --json [llp]` per session; reopened on the applied program | `repl_<verb>` for every verb the wire's `help` lists (39 today), each with the description the wire declares; `catalog_apply`; the `tool_call` gate | see the report |
+| `metis-repl.ts` | one `metis --json [llp]` per session; reopened on the applied program | `repl_<verb>` for every verb the wire's `help` lists (39 today), each with the description the wire declares; `catalog_apply`, `catalog_edit`, `catalog_take`; the `tool_call` gate | see the report |
 | `metis-domain.ts` | one `domain_agent --domain <n> --case replay --consult template [--records DIR]` per `domain_open` | `domain_open`, `domain_clock`; `domain_<tool>` for every tool of `metis --tools-json` served by the domain agent (served_by repl / watch / agent: state, ctx, events, why, findings, consult, reset, explain, escalate); `intent_<verb>` for every verb of the domain's `intent.yaml` | |
 | `lib/jsonl.ts` | — | a JSON-lines child: one request, the lines until its answer, unasked lines to a callback | |
 

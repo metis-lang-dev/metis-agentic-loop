@@ -108,17 +108,20 @@ async function main() {
 	const text = readFileSync(seed, "utf8");
 	say(`\n## 1. read the seed\n`);
 	await call("repl_state", { arg: "" });
+	await call("repl_show", { arg: "base" });
 	say(`\n## 2. the seed, as it is, becomes the domain's program\n`);
-	const applied = await call("catalog_apply", { domain: name, what: "served" });
+	const applied = await call("catalog_apply", { domain: name, what: "served", display: `the ${name.replace(/_/g, " ")}`, line: `the program ${basename(seed)}, seeded` });
 	const prog = join(cat, "domains", name, `${name}.llp`);
 	check("the domain's program is the seed, byte for byte", existsSync(prog) && readFileSync(prog, "utf8") === text);
 	check("the gate showed the seed's diff", gates.length === 1 && gates[0].includes(`domains/${name}/${name}.llp (new)`));
 	check("the REPL serves the catalog's program", applied.includes(`The REPL now serves ${prog}`));
+	check("domain.yaml has the display and line", /^display: /m.test(readFileSync(join(cat, "domains", name, "domain.yaml"), "utf8")));
 	say(`\n## 3. intents\n`);
-	// always: the domain agent opens no domain without an intent.yaml (a world without cmd_* atoms: UNKNOWN only)
 	const it = await call("catalog_apply", { domain: name, what: "intents" });
-	check("intent.yaml written", it.startsWith("applied:") && existsSync(join(cat, "domains", name, "intent.yaml")));
-	if (!/\bcmd_\w+/.test(text)) say("  (no cmd_* atoms: the person gives this world no commands; its intent.yaml knows only UNKNOWN)");
+	const commands = /^pred\s+cmd_\w+/m.test(text);
+	if (it.startsWith("no intent.yaml")) check("a world with no commands: no intent.yaml", !commands && !existsSync(join(cat, "domains", name, "intent.yaml")));
+	else check("intent.yaml written", it.startsWith("applied:") && existsSync(join(cat, "domains", name, "intent.yaml")));
+	if (!commands) say("  (no cmd_* atoms: the person gives this world no commands)");
 	say(`\n## 4. exercise\n`);
 	const opened = await call("domain_open", { domain: name });
 	check("the domain opens", !/^(ERROR|BLOCKED)/.test(opened));
@@ -126,17 +129,30 @@ async function main() {
 	check("its clock runs", !/^(ERROR|BLOCKED)/.test(clock));
 	await call("domain_state", { domain: name });
 	await call("domain_events", { domain: name });
-	say(`\n## 5. a README, from the program's header (gated)\n`);
-	// what a model would write: the title, and the header's own words (its origin, its versions), none invented
-	const header = text.split("\n").filter((l) => /^%/.test(l)).slice(0, 12).map((l) => l.replace(/^%+ ?/, "")).join("\n");
-	const readme = `# ${name} — the fiction program ${basename(seed)}\n\nSeeded from \`${rel}\`. Its header:\n\n${header.split("\n").map((l) => `> ${l}`).join("\n")}\n`;
-	const rd = await call("catalog_apply", { domain: name, what: "readme", text: readme });
-	check("the README is written, behind the gate", rd.startsWith("applied:") && readFileSync(join(cat, "domains", name, "README.md"), "utf8") === readme);
-	say(`\n## 6. take it into the person's catalog\n`);
+	say(`\n## 5. the person asks for a comment changed: catalog_edit, every other byte kept\n`);
+	// the fiction port's case (s-e3d0942d finding 1): one header line, never formalize or revise
+	const first = text.split("\n").find((l) => /^% \S/.test(l));
+	let expected = text;
+	if (first) {
+		const ed = await call("catalog_edit", { domain: name, path: `${name}.llp`, old_string: first, new_string: `${first} (edited in the loop)` });
+		expected = text.replace(first, `${first} (edited in the loop)`);
+		const now = readFileSync(prog, "utf8");
+		check("the edit changed that line only", ed.startsWith("applied:") && now === expected);
+		const comments = (t: string) => t.split("\n").filter((l) => /^\s*%/.test(l));
+		check("every comment is kept", comments(now).length === comments(text).length && comments(now).filter((l) => !comments(text).includes(l)).length === 1);
+		check("the REPL serves the edited program", ed.includes(`The REPL now serves ${prog}`));
+	} else say("  (the seed has no header comment to edit)");
+	say(`\n## 6. a README: the model's title and summary, the rest the SDK's (gated)\n`);
+	const rd = await call("catalog_apply", { domain: name, what: "readme", title: `the program ${basename(seed)}`, text: `Seeded from \`${rel}\`.` });
+	const readme = readFileSync(join(cat, "domains", name, "README.md"), "utf8");
+	check("the README is written, behind the gate", rd.startsWith("applied:") && readme.startsWith(`# ${name} — the program ${basename(seed)}\n\nSeeded from`));
+	const head = expected.split("\n").filter((l) => /^%/.test(l));
+	check("the README carries the program's header verbatim", !first || readme.includes(head[0]));
+	say(`\n## 7. take it into the person's catalog\n`);
 	const taken = await call("catalog_take", { domain: name });
 	const d = join(into, "domains", name);
 	check("taken into the target", taken.startsWith(`taken into ${into}:`));
-	check("the target's program is the seed", existsSync(join(d, `${name}.llp`)) && readFileSync(join(d, `${name}.llp`), "utf8") === text);
+	check("the target's program is the seed as edited", existsSync(join(d, `${name}.llp`)) && readFileSync(join(d, `${name}.llp`), "utf8") === expected);
 	check("the target has domain.yaml and the approved README", existsSync(join(d, "domain.yaml")) && readFileSync(join(d, "README.md"), "utf8") === readme);
 	check("its bundle built", existsSync(join(d, "build", `${name}.metis`)));
 	check("the loop's own catalog is untouched by the take", !existsSync(join(cat, "domains", name, "build")));

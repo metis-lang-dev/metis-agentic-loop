@@ -34,18 +34,31 @@ jobs:
         with:
           repository: metis-lang-dev/metis-catalog
           path: metis-catalog
+      - name: Checkout metis-lang (public; metisc checks a catalog_edit of a program)
+        uses: actions/checkout@v4
+        with:
+          repository: metis-lang-dev/metis-lang
+          path: metis-lang
+      - name: Install OCaml + build metisc
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ocaml-nox
+          make -C metis-lang metisc
+          echo "METISC=$GITHUB_WORKSPACE/metis-lang/src/metisc" >> "$GITHUB_ENV"
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Install metispy, metis-catalog and the loop SDK at its tag
         run: |
           pip install ./metispy ./metis-catalog
-          # sdk-v0.1.3: the catalog CLI's intents --spec (metis-loop 21bfc02), the
+          # sdk-v0.1.4: the catalog CLI's intents --spec (metis-loop 21bfc02), the
           # OpenAI-compatible face formalize uses on OpenRouter (metis-loop 7932969),
-          # and take, catalog_take's (metis-loop 8c30fda)
-          pip install "metis-loop-sdk @ git+https://github.com/metis-lang-dev/metis-loop@sdk-v0.1.3#subdirectory=sdk"
+          # take, catalog_take's (metis-loop 8c30fda), and edit, since, display/line and
+          # the README's mechanical parts (loop-fixes s-855d8067)
+          pip install "metis-loop-sdk @ git+https://github.com/metis-lang-dev/metis-loop@sdk-v0.1.4#subdirectory=sdk"
           python -m metis_loop_sdk.catalog intents --help | grep -q -- --spec
           python -m metis_loop_sdk.catalog take --help > /dev/null
+          python -m metis_loop_sdk.catalog edit --help | grep -q -- --replace-all
+          python -m metis_loop_sdk.catalog readme --help | grep -q -- --summary
           python -m metis_loop_sdk.models openai-command --help > /dev/null
           python -c "import metis_loop_sdk.models.openai, metis_loop_sdk.catalog; print('sdk', metis_loop_sdk.__version__)"
       - name: 'Node and pi, pinned (setup.sh: checksummed node, npm ci from the lock)'
@@ -57,5 +70,5 @@ jobs:
       - name: node tests
         working-directory: metis-agentic-loop
         run: |
-          export REAL_METIS="$(command -v metis)" TEST_AGENT_PY="$(command -v python)" TEST_SDK_PY="$(command -v python)"
+          export REAL_METIS="$(command -v metis)" TEST_AGENT_PY="$(command -v python)" TEST_SDK_PY="$(command -v python)" TEST_REQUIRE_METISC=1
           ./node/bin/node --experimental-strip-types --test test/extensions.test.ts

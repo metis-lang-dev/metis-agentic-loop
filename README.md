@@ -23,7 +23,7 @@ At run time the loop drives two processes over their JSON-lines wires,
 `metis --json` (metispy) and `python -m metis_agent.domain_agent` (metis-agent), and
 shares no code with them. Code it shares is the loop SDK's (`metis_loop_sdk`,
 pinned by tag in CI): the model adapters, and the catalog. The extensions read
-a domain's intents and make the writes (`catalog_apply`, `catalog_take`) through the
+a domain's intents and make the writes (`catalog_apply`, `catalog_edit`, `catalog_take`) through the
 SDK's TypeScript face, `metis_loop_sdk/ts/catalog.ts`: one function per verb of its
 catalog CLI (`python -m metis_loop_sdk.catalog … --json`), shipped in the SDK's wheel.
 `setup.sh` links it as `extensions/sdk` (gitignored; `pi.sh` refreshes the link at each
@@ -46,10 +46,10 @@ metis-agent; `METIS_LOOP_SDK_PY`, `METIS_LOOP_METIS` and `METIS_LOOP_AGENT_PY` f
 | `pi.sh` | pi with this directory's config (`agent/models.json`: Ollama only, no keys, no OAuth), offline, no built-in tools, context files, skills, prompt templates or MCP, only the two extensions; the TUI in regular mode (the gate's diff stays in the terminal's scrollback, its Yes/No below it) |
 | `take.sh` | `take.sh DIR [NAME]`: `catalog_take` from the shell, after the session: a run's domain (default lamp) into the catalog, three calls of the loop SDK's CLI (`take --readme-from-run DIR`, its dry run, `build`); never a commit |
 | `loop.sh` | the loop: `--scratch DIR` (a scratch catalog with the example's world) or `METIS_CATALOG=…`; `--scratch DIR --seed PATH.llp [--name NAME]`: a seeded start ("A seeded start" below); `MODEL=ollama/metis-gemma4-e4b[-cpu]`; pi's args (e.g. `--mode rpc`) |
-| `extensions/metis-repl.ts` | the REPL (`metis --json`): a tool per wire verb, `catalog_apply` (what=program, served, extension, intents, readme), `catalog_take` (a finished domain into `METIS_LOOP_TAKE_INTO`) and their gate; `lib/roots.ts`: which catalog each write goes to |
+| `extensions/metis-repl.ts` | the REPL (`metis --json`): a tool per wire verb, `catalog_apply` (what=program, served, extension, intents, readme), `catalog_edit` (one exact edit of a domain's file, comments and all), `catalog_take` (a finished domain into `METIS_LOOP_TAKE_INTO`) and their gate, which shows a refused file's next proposal as its diff from the refused one; `lib/roots.ts`: which catalog each write goes to |
 | `extensions/metis-domain.ts` | the domain agent: `domain_open`, `domain_clock`, the REPL API's tools, the intents |
 | `prompts/loop-system.md` | the loop's system prompt (replaces pi's coding-assistant prompt); `seed-task.md`, a seeded start's first message |
-| `example/` | the worked example: the lamp's world (`lamp/lamp_host.py`), the person's prose, `person.py` (the person over RPC); `seeded.ts`, a seeded start scripted end to end (no model) |
+| `example/` | the worked example: the lamp's world (`lamp/lamp_host.py`), the person's prose, `person.py` (the person over RPC); `seeded.ts`, a seeded start scripted end to end (no model); `seedperson.py`, a seeded run over RPC with a human at every gate, through files (`DIR/ask/<n>.md` → `<n>.ans`: y, or n and a steer), with a cost cap |
 | `test/` | `extensions.test.ts`, the extensions against stand-ins (no model): `node/bin/node --experimental-strip-types --test test/extensions.test.ts` |
 
 ## The demo
@@ -103,13 +103,14 @@ The run's catalog is a scratch one (`tools/`, the plant beside the lamp), so cop
 `loop.sh --scratch DIR --seed PATH.llp [--name NAME]` starts from an existing program instead of prose: the six fiction programs (once `metis-catalog/domains/fiction/*.llp`) became catalog domains this way (fiction-port step 2: `domains/love_triangle/`, `tragedy/`, `herstory/`, `talespin/`, `three_pigs/`, `three_pigs_connectives/`).
 - The REPL serves a copy of the seed (`DIR/seed/NAME.llp`); `DIR/seed.json` records it. NAME defaults to the file's stem with `-` as `_` (`3lp` needs `--name`). A run is seeded once: another seed needs a new DIR.
 - pi's first message is the seeded task (`prompts/seed-task.md`, also `DIR/seed/task.md`; over `--mode rpc` the client sends it):
-  1. read the program;
-  2. `catalog_apply what=served`: the seed, as it is, becomes the domain's program. The gate shows it, and its rules are not changed: no formalize, no revise, unless the person asks for a change and approves its diff. Until the seed is applied, a seeded run refuses what=program and what=extension for a domain its catalog does not have, so a change to the seed always reaches the gate as a diff against it, never as a new file;
-  3. `catalog_apply what=intents`: the person's verbs from its `cmd_*` atoms. A world without commands gets an intent.yaml that knows only UNKNOWN, because the domain agent opens no domain without one;
+  1. read the program (`repl_show base`);
+  2. `catalog_apply what=served display=… line=…`: the seed, as it is, becomes the domain's program, its manifest with a display and a line. The gate shows it, and its rules are not changed: never formalize or revise, which reprint the program without its comments. A change the person asks for (a comment, a header line, one rule) is `catalog_edit` with the exact old and new text, its diff at the gate. Until the seed is applied, a seeded run refuses what=program and what=extension for a domain its catalog does not have, so a change to the seed always reaches the gate as a diff against it, never as a new file;
+  3. `catalog_apply what=intents`: the person's verbs from its `cmd_*` atoms. A world without commands gets no intent.yaml (the agents open a domain without intents with no verbs, metis-agent a0a19e6), and nothing reaches the gate; `METIS_CATALOG_INTENTLESS=0` (the SDK's switch) gives one that knows only UNKNOWN for older agents;
   4. exercise: `domain_open`, `domain_clock`, `domain_state`, `domain_events`;
-  5. `catalog_apply what=readme text=…`: the README, gated: what the world is, and its origin and versions as the program's header gives them;
+  5. `catalog_apply what=readme title=… text=…`: the README, gated. The model writes the title and one summary paragraph, each claim from a rule, a header line or an output of the session; the SDK writes the rest from the files: where it came from, the program's header verbatim, its extensions, how to run its case (`metisc --run`, its `#` lines) and the REPL line, and the intents' status. A fix is `catalog_edit path=README.md`, never the whole text again;
   6. when the person asks, `catalog_take`. It carries the README (a domain without one gets the SDK's, which names the seed).
-- `example/seeded.ts SEED.llp DIR [NAME]` runs those calls with no model (no cost), against the real processes, into the scratch target `DIR/into`, and checks each step. All six fiction programs pass it.
+- `example/seeded.ts SEED.llp DIR [NAME]` runs those calls with no model (no cost), against the real processes, into the scratch target `DIR/into`, and checks each step, a header comment edited through `catalog_edit` with every comment kept. All six fiction programs pass it.
+- `example/seedperson.py DIR --seed PATH.llp [--max-usd X]` runs a seeded start on a model with a person who is not at the TUI: at each gate it writes the question to `DIR/ask/<n>.md` (the diff), names it in `DIR/WAITING`, and waits for `<n>.ans`.
 
 `MODEL=openrouter/<id>:off ./demo.sh` runs another OpenRouter model; formalize follows it.
 

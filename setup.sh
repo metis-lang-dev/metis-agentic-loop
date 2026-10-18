@@ -24,7 +24,7 @@ SDK_PY="${METIS_LOOP_SDK_PY:-$HERE/../.venv/bin/python}"
 link() {
   local dir
   dir="$("$SDK_PY" -m metis_loop_sdk.catalog ts --json | "$SDK_PY" -c 'import json,sys; print(json.load(sys.stdin)["dir"])')" ||
-    { echo "setup.sh: no loop SDK with its TypeScript face in $SDK_PY (pip install -e ../metis-loop/sdk; sdk-v0.1.3 or later)" >&2; return 1; }
+    { echo "setup.sh: no loop SDK with its TypeScript face in $SDK_PY (pip install -e ../metis-loop/sdk; sdk-v0.1.4 or later)" >&2; return 1; }
   [ "$(readlink "$HERE/extensions/sdk" 2>/dev/null)" = "$dir" ] || ln -sfn "$dir" "$HERE/extensions/sdk"
 }
 
