@@ -40,9 +40,9 @@ metis-agent; `METIS_LOOP_SDK_PY`, `METIS_LOOP_METIS` and `METIS_LOOP_AGENT_PY` f
 |---|---|
 | `setup.sh` | install / `--check` |
 | `pi.sh` | pi with this directory's config (`agent/models.json`: Ollama only, no keys, no OAuth), offline, no built-in tools, context files, skills, prompt templates or MCP, only the two extensions; the TUI in regular mode (the gate's diff stays in the terminal's scrollback, its Yes/No below it) |
-| `take.sh` | `take.sh DIR [NAME]`: a demo run's domain (default lamp) into the catalog through the loop SDK's `take`, with a README and its bundle; never a commit |
+| `take.sh` | `take.sh DIR [NAME]`: `catalog_take` from the shell, after the session: a demo run's domain (default lamp) into the catalog through the loop SDK's `take`, with a README and its bundle; never a commit |
 | `loop.sh` | the loop: `--scratch DIR` (a scratch catalog with the example's world) or `METIS_CATALOG=…`; `MODEL=ollama/metis-gemma4-e4b[-cpu]`; pi's args (e.g. `--mode rpc`) |
-| `extensions/metis-repl.ts` | the REPL (`metis --json`): a tool per wire verb, `catalog_apply` and its gate |
+| `extensions/metis-repl.ts` | the REPL (`metis --json`): a tool per wire verb, `catalog_apply`, `catalog_take` (a finished domain into `METIS_LOOP_TAKE_INTO`) and their gate |
 | `extensions/metis-domain.ts` | the domain agent: `domain_open`, `domain_clock`, the REPL API's tools, the intents |
 | `prompts/loop-system.md` | the loop's system prompt (replaces pi's coding-assistant prompt) |
 | `example/` | the worked example: the lamp's world (`lamp/lamp_host.py`), the person's prose, `person.py` (the person over RPC) |
@@ -90,7 +90,9 @@ Leave pi with ctrl+c twice. `DIR` keeps:
 - the pi session;
 - `records/formalize-calls.jsonl` (each formalize call, its tokens and cost).
 
-**Take the lamp into the catalog** to exercise it beside the dog (the loop console, the agents): `./take.sh DIR`. The run's catalog is a scratch one (`tools/`, the plant beside the lamp), so copying it over is wrong; `take.sh` takes the one domain through the loop SDK's catalog CLI (`take lamp --from DIR/catalog`). It brings domain.yaml, the program, the extensions, the host and intent.yaml (intent/ generated again), and writes a README of where the domain came from. It shows the diff, asks, writes into `../metis-catalog` (or `METIS_CATALOG`), and builds the bundle (`build/`, git-ignored, as the dog's). It never commits.
+**Take the lamp into the catalog** to exercise it beside the dog (the loop console, the agents). In pi, when the loop is through, say "take the lamp into my catalog": the model calls `catalog_take domain=lamp`, and the gate shows the diff into `../metis-catalog` (`METIS_LOOP_TAKE_INTO`, which `loop.sh --scratch` sets). After the session, `./take.sh DIR` does the same from the shell (into `METIS_CATALOG`, default `../metis-catalog`).
+
+The run's catalog is a scratch one (`tools/`, the plant beside the lamp), so copying it over is wrong. Both take the one domain through the loop SDK's catalog CLI (`take lamp --from DIR/catalog`, metis-loop sdk after `sdk-v0.1.2`). It brings domain.yaml, the program, the extensions, the host and intent.yaml (intent/ generated again), and writes a README of the run (`extensions/lib/take_readme.py`). It refuses a domain the catalog has already, builds the bundle (`build/`, git-ignored, as the dog's), and never commits.
 
 `MODEL=openrouter/<id>:off ./demo.sh` runs another OpenRouter model; formalize follows it.
 

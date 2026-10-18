@@ -9,7 +9,9 @@
 //   METIS_LOOP_SDK_PY   a python with the loop SDK (metis_loop_sdk) installed
 //   METIS_CATALOG       the catalog root (a scratch copy for trials); unset,
 //                       the SDK's own rule (the metis-catalog checkout beside it)
+//   METIS_LOOP_TAKE_INTO the catalog catalog_take takes a finished domain into
 import { execFileSync } from "node:child_process";
+import { resolve } from "node:path";
 
 export type Planned = { path: string; new: boolean; diff: string };
 
@@ -20,11 +22,22 @@ export function writeRoot(): string {
 	return c;
 }
 
-/** One CLI call: `catalog(["get", "lamp"])`; stdin for `-` arguments. Throws
- *  the SDK's own error ({"error"} on stdout, exit 1) as an Error. */
-export function catalog(args: string[], input?: string): any {
+/** The catalog catalog_take takes a domain into: $METIS_LOOP_TAKE_INTO (loop.sh
+ *  --scratch: the metis-catalog checkout), never the one the loop writes. */
+export function takeRoot(): string {
+	const t = process.env.METIS_LOOP_TAKE_INTO;
+	if (!t) throw new Error("METIS_LOOP_TAKE_INTO is not set: catalog_take has no catalog to take the domain into");
+	if (resolve(t) === resolve(writeRoot())) throw new Error(`METIS_LOOP_TAKE_INTO is the catalog the loop writes (${t}): the domain is there already`);
+	return t;
+}
+
+/** One CLI call: `catalog(["get", "lamp"])`; stdin for `-` arguments; `root`
+ *  another catalog than $METIS_CATALOG. Throws the SDK's own error ({"error"}
+ *  on stdout, exit 1) as an Error. */
+export function catalog(args: string[], input?: string, root_?: string): any {
 	const py = process.env.METIS_LOOP_SDK_PY || "python3";
-	const root = process.env.METIS_CATALOG ? ["--root", process.env.METIS_CATALOG] : [];
+	const r = root_ ?? process.env.METIS_CATALOG;
+	const root = r ? ["--root", r] : [];
 	try {
 		return JSON.parse(
 			execFileSync(py, ["-m", "metis_loop_sdk.catalog", ...root, ...args, "--json"], {

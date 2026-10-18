@@ -62,7 +62,7 @@ test("metis-repl: the wire's verbs become tools, its words or the finding's mark
 	const p = fakePi();
 	repl(p.api);
 	await p.emit("session_start", {}, ui(true));
-	assert.deepEqual([...p.tools.keys()].sort(), ["catalog_apply", "repl_formalize", "repl_gate", "repl_show", "repl_state", "repl_text"]);
+	assert.deepEqual([...p.tools.keys()].sort(), ["catalog_apply", "catalog_take", "repl_formalize", "repl_gate", "repl_show", "repl_state", "repl_text"]);
 	assert.match(p.tools.get("repl_state").description, /the domain's current state/);
 	assert.match(p.tools.get("repl_text").description, /finding: metispy/);
 	const r = await p.tools.get("repl_text").execute("c1", { arg: "a desk lamp" });
@@ -147,6 +147,46 @@ test("metis-repl: catalog_apply through the loop SDK — the gate shows its dry-
 	const bad = { toolName: "catalog_apply", toolCallId: "x", input: { domain: "nosuch", what: "intents" } };
 	assert.match((await p.emit("tool_call", bad, watch)).reason, /catalog intents: .*nosuch/);
 	await p.emit("session_shutdown", {}, {});
+});
+
+test("metis-repl: catalog_take takes a domain into the person's catalog, behind the gate, with a README", async () => {
+	const cat = env(true);
+	const d = join(cat, "domains", "lamp");
+	writeFileSync(join(d, "lamp.llp"), 'catalog lamp 1.\nprovenance text "A desk lamp. It starts dark." "2026-10-18".\npred dark : lamp.\n');
+	writeFileSync(join(d, "domain.yaml"), "program: lamp.llp\nhost: lamp_host.py:make\n");
+	mkdirSync(join(d, "extensions"));
+	writeFileSync(join(d, "extensions", "wear.llp"), "catalog lamp_wear 1.\nextends lamp.\n");
+	const into = mkdtempSync(join(tmpdir(), "loop-into-"));
+	mkdirSync(join(into, "domains"));
+	const p = fakePi();
+	repl(p.api);
+	await p.emit("session_start", {}, ui(true));
+	try {
+		const take = { toolName: "catalog_take", toolCallId: "t", input: { domain: "lamp" } };
+		delete process.env.METIS_LOOP_TAKE_INTO;
+		assert.match((await p.emit("tool_call", take, ui(true))).reason, /METIS_LOOP_TAKE_INTO is not set/);
+		process.env.METIS_LOOP_TAKE_INTO = cat;
+		assert.match((await p.emit("tool_call", take, ui(true))).reason, /the catalog the loop writes/);
+		process.env.METIS_LOOP_TAKE_INTO = into;
+		assert.equal((await p.emit("tool_call", take, ui(false))).reason, "the person did not approve this write");
+		const shown: string[] = [];
+		const watch = { hasUI: true, ui: { confirm: async (t: string, b: string) => (shown.push(`${t}\n${b}`), true), notify: () => {} } };
+		assert.equal(await p.emit("tool_call", take, watch), undefined);
+		assert.ok(shown[0].startsWith(`Apply to the catalog ${into}: `));
+		assert.match(shown[0], /domains\/lamp\/README\.md \(new\)[\s\S]*\+# lamp — a desk lamp/);
+		assert.ok(!existsSync(join(into, "domains", "lamp")));                         // the dry run wrote nothing
+		await assert.rejects(p.tools.get("catalog_apply").execute("t", { domain: "lamp", what: "program" }), /not approved/);
+		assert.equal(await p.emit("tool_call", take, watch), undefined);                  // (the plan apply refused is gone)
+		const t = await p.tools.get("catalog_take").execute("t", take.input);
+		assert.match(t.content[0].text, new RegExp(`^taken into ${into}: .*domains/lamp/lamp_host\\.py`));
+		for (const f of ["lamp.llp", "lamp_host.py", "domain.yaml", "extensions/wear.llp"])
+			assert.equal(readFileSync(join(into, "domains", "lamp", f), "utf8"), readFileSync(join(d, f), "utf8"), f);
+		assert.match(readFileSync(join(into, "domains", "lamp", "README.md"), "utf8"), /`extensions\/wear\.llp`/);
+		assert.match((await p.emit("tool_call", take, watch)).reason, /has domains\/lamp already/);
+	} finally {
+		delete process.env.METIS_LOOP_TAKE_INTO;
+		await p.emit("session_shutdown", {}, {}); // a failed assert must not leave the REPL child holding the run open
+	}
 });
 
 test("metis-domain: J from intent.yaml, T from tools.json, the clock; a surprise is steered in", async () => {

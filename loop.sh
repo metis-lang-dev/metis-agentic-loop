@@ -32,6 +32,8 @@ if [ "${1:-}" = --scratch ]; then
     cp "$HERE/example/lamp/lamp_host.py" "$S/catalog/domains/lamp/"     # the world, before any program
   fi
   export METIS_CATALOG="$S/catalog" METIS_LOOP_RECORDS="$S/records" PI_LOOP_SESSIONS="$S/sessions"
+  # catalog_take's target: the person's catalog a finished domain is taken into (gated, never a commit)
+  export METIS_LOOP_TAKE_INTO="${METIS_LOOP_TAKE_INTO-$PKGS/metis-catalog}"
   # the REPL starts beside a known domain: formalize shows the model the served
   # world's vocabulary (a blank world shows it none, and E4B then writes no LLP)
   export METIS_LOOP_LLP="${METIS_LOOP_LLP-$S/catalog/domains/plant/plant.llp}"

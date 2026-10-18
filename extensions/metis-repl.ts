@@ -5,7 +5,8 @@
 // without a description gets no words from here (a finding against metispy,
 // marked in the tool's description). No logic of its own, except the one
 // write the wire never makes: catalog_apply, behind pi's tool_call gate (the
-// person approves every write into the catalog).
+// person approves every write into the catalog), and catalog_take, which takes a
+// finished domain from the loop's catalog into the person's, behind the same gate.
 //
 // Environment (loop.sh sets them):
 //   METIS_LOOP_METIS   the metis console script (metispy's `metis`)
@@ -13,18 +14,23 @@
 //   METIS_LOOP_SDK_PY  a python with the loop SDK: catalog_apply goes through its catalog CLI
 //   METIS_CONFIG       the kernel's dot file ([llm]: formalize's endpoint)
 //   METIS_LOOP_LLP     optional: the program the REPL starts on (else a blank world)
+//   METIS_LOOP_TAKE_INTO the catalog catalog_take takes a domain into (loop.sh --scratch: metis-catalog)
+//   METIS_LOOP_RECORDS the run's records (formalize-calls.jsonl, for the taken domain's README)
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Type } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { cap, JsonlChild, type Line } from "./lib/jsonl.ts";
-import { catalog, type Planned, writeRoot } from "./lib/catalog.ts";
+import { catalog, type Planned, takeRoot, writeRoot } from "./lib/catalog.ts";
 
 const NO_WORDS = "(the REPL's wire declares no description for this verb — finding: metispy)";
 const ARG = Type.Object({
 	arg: Type.Optional(Type.String({ description: "everything after the verb on the REPL line, as a person types it (empty for the bare verb)" })),
 });
 const NAME = /^[a-z][a-z0-9_]*$/;
+const TAKE_README = join(dirname(fileURLToPath(import.meta.url)), "lib", "take_readme.py");
 
 export default function (pi: ExtensionAPI) {
 	let repl: JsonlChild | null = null;
@@ -110,13 +116,14 @@ export default function (pi: ExtensionAPI) {
 	// apply with the same text — domain.yaml checked by the catalog's loader,
 	// the intent files generated, never a commit
 
-	type Plan = { domain: string; args: string[]; input: string; files: Planned[]; reopen: boolean };
+	// cmd: the SDK command the write runs (its plan: the same with --dry-run); root: the catalog it writes
+	type Plan = { domain: string; cmd: string[]; input: string; files: Planned[]; reopen: boolean; root: string; take?: boolean };
 
 	async function plan(p: { domain: string; what: string; name?: string }): Promise<Plan> {
 		if (!NAME.test(p.domain)) throw new Error(`domain ${JSON.stringify(p.domain)}: lowercase letters, digits, _`);
 		writeRoot();
 		const planned = (args: string[], input: string, reopen = false): Plan => ({
-			domain: p.domain, args, input, reopen,
+			domain: p.domain, cmd: ["apply", p.domain, ...args], input, reopen, root: writeRoot(),
 			files: catalog(["apply", p.domain, ...args, "--dry-run"], input).files,
 		});
 		if (p.what === "intents") {
@@ -152,6 +159,24 @@ export default function (pi: ExtensionAPI) {
 		throw new Error(`what: program | extension | intents, not ${JSON.stringify(p.what)}`);
 	}
 
+	// catalog_take: the SDK's `take` from the loop's catalog into the person's —
+	// the domain's own files, with a README of the run when it has none
+	function planTake(p: { domain: string }): Plan {
+		if (!NAME.test(p.domain)) throw new Error(`domain ${JSON.stringify(p.domain)}: lowercase letters, digits, _`);
+		const from = writeRoot();
+		const into = takeRoot();
+		catalog(["get", p.domain]); // the loop's catalog has it (the SDK's error otherwise)
+		let readme = "";
+		if (!existsSync(join(from, "domains", p.domain, "README.md"))) {
+			const calls = process.env.METIS_LOOP_RECORDS ? join(process.env.METIS_LOOP_RECORDS, "formalize-calls.jsonl") : "";
+			readme = execFileSync(process.env.METIS_LOOP_SDK_PY || "python3",
+				[TAKE_README, from, p.domain, calls, basename(dirname(from))], { encoding: "utf8" });
+		}
+		const cmd = ["take", p.domain, "--from", from, ...(readme ? ["--readme", "-"] : [])];
+		return { domain: p.domain, cmd, input: readme, reopen: false, root: into, take: true,
+			files: catalog([...cmd, "--dry-run"], readme, into).files };
+	}
+
 	const plans = new Map<string, Plan>(); // toolCallId -> the plan the person approved
 
 	pi.registerTool({
@@ -170,8 +195,8 @@ export default function (pi: ExtensionAPI) {
 		async execute(id) {
 			const pl = plans.get(id);
 			plans.delete(id);
-			if (!pl) throw new Error("not approved");
-			const out = catalog(["apply", pl.domain, ...pl.args], pl.input);
+			if (!pl || pl.take) throw new Error("not approved");
+			const out = catalog(pl.cmd, pl.input);
 			const written: string[] = out.written;
 			let after = "";
 			if (pl.reopen) {
@@ -190,12 +215,43 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	// the gate: every catalog_apply waits for the person's confirmation in pi
+	pi.registerTool({
+		executionMode: "sequential",
+		name: "catalog_take",
+		label: "take into the person's catalog",
+		description:
+			"Only when the person asks: take a finished domain (its program, extensions, host, intents) from the loop's catalog into the " +
+			"person's catalog, with a README of this run, and build its bundle. The person approves the diff; nothing is committed. " +
+			"Refused when the person's catalog has the domain already.",
+		parameters: Type.Object({ domain: Type.String({ description: "the domain's name: lowercase letters, digits, _" }) }),
+		async execute(id) {
+			const pl = plans.get(id);
+			plans.delete(id);
+			if (!pl?.take) throw new Error("not approved");
+			const out = catalog(pl.cmd, pl.input, pl.root);
+			let bundle: string;
+			try {
+				bundle = execFileSync(process.env.METIS_LOOP_SDK_PY || "python3", ["-m", "metis.kernel.artifact", pl.domain], {
+					cwd: pl.root, env: { ...process.env, METIS_CATALOG: pl.root }, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+				}).trim();
+			} catch (e: any) {
+				bundle = `the bundle did not build: ${String(e.stderr || e.message).trim().slice(-400)}`;
+			}
+			return {
+				content: [{ type: "text", text: `taken into ${pl.root}: ${out.written.join(", ")}. ${bundle}. Not committed: the person commits domains/${pl.domain} in that catalog.` }],
+				details: { written: out.written, fingerprint: out.fingerprint, root: pl.root },
+			};
+		},
+	});
+
+	// the gate: every catalog_apply and catalog_take waits for the person's confirmation in pi
 	pi.on("tool_call", async (event, ctx) => {
-		if (event.toolName !== "catalog_apply") return undefined;
+		if (event.toolName !== "catalog_apply" && event.toolName !== "catalog_take") return undefined;
 		let pl: Plan;
 		try {
-			pl = await plan(event.input as { domain: string; what: string; name?: string });
+			pl = event.toolName === "catalog_take"
+				? planTake(event.input as { domain: string })
+				: await plan(event.input as { domain: string; what: string; name?: string });
 		} catch (e) {
 			return { block: true, reason: (e as Error).message };
 		}
@@ -203,7 +259,7 @@ export default function (pi: ExtensionAPI) {
 		const what = pl.files.map((f) => `${f.path}${f.new ? " (new)" : ""}`).join(", ") || "nothing changes";
 		const diff = pl.files.map((f) => f.diff).join("").split("\n");
 		const ok = await ctx.ui.confirm(
-			`Apply to the catalog ${writeRoot()}: ${what}?`,
+			`Apply to the catalog ${pl.root}: ${what}?`,
 			`${diff.slice(0, 60).join("\n")}${diff.length > 60 ? "\n…" : ""}`,
 		);
 		if (!ok) return { block: true, reason: "the person did not approve this write" };

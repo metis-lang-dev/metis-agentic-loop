@@ -20,7 +20,8 @@ and the worked example.
   interfaces' own declarations. Nothing is written for pi that the interfaces do
   not declare, and nothing they declare is left out.
 - The one capability neither interface has is writing into the catalog. That
-  write is `catalog_apply`, behind the person's gate.
+  write is `catalog_apply`, behind the person's gate; `catalog_take`, behind the
+  same gate, takes a finished domain from the loop's catalog into the person's.
 - **Host: pi** (`@earendil-works/pi-coding-agent`, pinned in this repository).
   - Built-in tools, context files, skills, prompt templates and MCP are all off.
   - The system prompt is the loop's own (`prompts/loop-system.md`).
@@ -45,6 +46,7 @@ AGENT-LOOP.md's steps, each with the tools it uses and the state it leaves behin
 | **revise** | the missing behaviour is described, drafted as an extension, and gated as one | `repl_mine`, `repl_formalize`, `repl_gate`, `repl_show` | a candidate that passed `gate` |
 | **apply** | the extension is written, gated | `catalog_apply` what=extension | `domains/<n>/extensions/<name>.llp` |
 | **re-exercise** | the domain is opened again on the catalog as it is now; the same situation must now be explained | `domain_open`, … | an explained record, or no surprise |
+| **take** | when the person asks: the domain is taken from the loop's (scratch) catalog into the person's (`METIS_LOOP_TAKE_INTO`) through the SDK's `take`, with a README of the run and its bundle, gated, never a commit | `catalog_take` | `domains/<n>/` in the person's catalog |
 | **stop** | the person stops the run | (pi: abort) | the session file |
 
 **The person's entries, all through pi** (the TUI, or RPC for a client):
@@ -53,7 +55,7 @@ AGENT-LOOP.md's steps, each with the tools it uses and the state it leaves behin
 |---|---|
 | start | a prompt: the goal and the prose |
 | steer | `steer` (delivered after the current tool batch) or `follow_up` (after the run) |
-| approve | the `tool_call` gate on `catalog_apply`: `ctx.ui.confirm`, which the TUI shows and RPC forwards as `extension_ui_request` |
+| approve | the `tool_call` gate on `catalog_apply` and `catalog_take`: `ctx.ui.confirm`, which the TUI shows and RPC forwards as `extension_ui_request` |
 | stop | `abort` |
 
 **The later autonomous entry** (step 2): a served domain spills surprise records,
