@@ -39,7 +39,8 @@ metis-agent; `METIS_LOOP_SDK_PY`, `METIS_LOOP_METIS` and `METIS_LOOP_AGENT_PY` f
 | file | what |
 |---|---|
 | `setup.sh` | install / `--check` |
-| `pi.sh` | pi with this directory's config (`agent/models.json`: Ollama only, no keys, no OAuth), offline, no built-in tools, context files, skills, prompt templates or MCP, only the two extensions |
+| `pi.sh` | pi with this directory's config (`agent/models.json`: Ollama only, no keys, no OAuth), offline, no built-in tools, context files, skills, prompt templates or MCP, only the two extensions; the TUI in regular mode (the gate's diff stays in the terminal's scrollback, its Yes/No below it) |
+| `take.sh` | `take.sh DIR [NAME]`: a demo run's domain (default lamp) into the catalog through the loop SDK's `take`, with a README and its bundle; never a commit |
 | `loop.sh` | the loop: `--scratch DIR` (a scratch catalog with the example's world) or `METIS_CATALOG=…`; `MODEL=ollama/metis-gemma4-e4b[-cpu]`; pi's args (e.g. `--mode rpc`) |
 | `extensions/metis-repl.ts` | the REPL (`metis --json`): a tool per wire verb, `catalog_apply` and its gate |
 | `extensions/metis-domain.ts` | the domain agent: `domain_open`, `domain_clock`, the REPL API's tools, the intents |
@@ -88,6 +89,8 @@ Leave pi with ctrl+c twice. `DIR` keeps:
 - the catalog the run wrote;
 - the pi session;
 - `records/formalize-calls.jsonl` (each formalize call, its tokens and cost).
+
+**Take the lamp into the catalog** to exercise it beside the dog (the loop console, the agents): `./take.sh DIR`. The run's catalog is a scratch one (`tools/`, the plant beside the lamp), so copying it over is wrong; `take.sh` takes the one domain through the loop SDK's catalog CLI (`take lamp --from DIR/catalog`). It brings domain.yaml, the program, the extensions, the host and intent.yaml (intent/ generated again), and writes a README of where the domain came from. It shows the diff, asks, writes into `../metis-catalog` (or `METIS_CATALOG`), and builds the bundle (`build/`, git-ignored, as the dog's). It never commits.
 
 `MODEL=openrouter/<id>:off ./demo.sh` runs another OpenRouter model; formalize follows it.
 
