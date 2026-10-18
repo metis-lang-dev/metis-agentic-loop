@@ -53,7 +53,7 @@ jobs:
         run: ./setup.sh
       - name: Shell syntax
         working-directory: metis-agentic-loop
-        run: bash -n setup.sh pi.sh loop.sh
+        run: bash -n setup.sh pi.sh loop.sh take.sh demo.sh
       - name: node tests
         working-directory: metis-agentic-loop
         run: |

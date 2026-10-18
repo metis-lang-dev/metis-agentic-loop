@@ -4,6 +4,13 @@
 #
 #   loop.sh --scratch DIR [pi args...]   a scratch catalog in DIR (made once: the
 #                                                 catalog's tools + the example's world), the trial
+#   loop.sh --scratch DIR --seed PATH.llp [--name NAME] [pi args...]
+#                                        a seeded start: the REPL serves an existing program
+#                                        (a copy in DIR/seed/), and pi's first message asks the
+#                                        model to make it the catalog domain NAME (default: the
+#                                        file's stem, - as _) through catalog_apply what=served —
+#                                        its rules unchanged — then exercise it and, when the
+#                                        person asks, catalog_take it (prompts/seed-task.md)
 #   METIS_CATALOG=… loop.sh [pi args...] an existing catalog (the person's)
 #
 #   MODEL=ollama/metis-gemma4-e4b (default; …-cpu: no layer on the GPU), or another pi
@@ -17,21 +24,57 @@
 #   OLLAMA_URL=http://127.0.0.1:11434 (default; another Ollama server, e.g. a user-level one
 #              when the system service started before the GPU driver and serves CPU only)
 #   pi args: e.g. --mode rpc (a client is the person), or none (pi's TUI)
+#   METIS_LOOP_PI=<cmd>  run it in pi.sh's place, with pi.sh's arguments (the tests' stand-in)
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PKGS="$(cd "$HERE/.." && pwd)"                      # the sibling checkouts
 AGENT="${METIS_AGENT:-$PKGS/metis-agent}"           # the domain agent's checkout
+TASK=()
 if [ "${1:-}" = --scratch ]; then
   S="$(mkdir -p "$2" && cd "$2" && pwd)"; shift 2
+  SEED="" NAME=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --seed) SEED="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"; shift 2 ;;
+      --name) NAME="$2"; shift 2 ;;
+      *) break ;;
+    esac
+  done
+  if [ -n "$SEED" ]; then
+    [ -f "$SEED" ] || { echo "loop.sh: --seed $SEED: no such file" >&2; exit 1; }
+    base="$(basename "$SEED" .llp)"; NAME="${NAME:-${base//-/_}}"
+    [[ "$NAME" =~ ^[a-z][a-z0-9_]*$ ]] || { echo "loop.sh: the domain name '$NAME': lowercase letters, digits, _ (give --name NAME)" >&2; exit 1; }
+    case "$SEED" in "$PKGS/metis-catalog/"*) REL="${SEED#"$PKGS/metis-catalog/"}" ;; *) REL="$SEED" ;; esac
+    WANT="{\"seed\": \"$REL\", \"name\": \"$NAME\"}"
+    if [ -f "$S/seed.json" ]; then
+      [ "$(cat "$S/seed.json")" = "$WANT" ] || { echo "loop.sh: $S was seeded otherwise ($(cat "$S/seed.json")): name a new DIR" >&2; exit 1; }
+    elif [ -d "$S/catalog/domains" ]; then
+      echo "loop.sh: $S has an unseeded catalog already: name a new DIR for a seeded start" >&2; exit 1
+    fi
+  elif [ -n "$NAME" ]; then
+    echo "loop.sh: --name goes with --seed" >&2; exit 1
+  elif [ -f "$S/seed.json" ]; then
+    echo "loop.sh: $S is a seeded run ($(cat "$S/seed.json")): give its --seed again, or name a new DIR" >&2; exit 1
+  fi
   if [ ! -d "$S/catalog/domains" ]; then
     mkdir -p "$S/catalog/domains"
     cp -r "$PKGS/metis-catalog/tools" "$S/catalog/"                     # the intent generator the SDK runs on it
-    cp -r "$PKGS/metis-catalog/domains/plant" "$S/catalog/domains/"       # a known domain beside the new one
-    rm -rf "$S/catalog/domains/plant/records" "$S/catalog/domains/plant/build"
-    mkdir -p "$S/catalog/domains/lamp"
-    cp "$HERE/example/lamp/lamp_host.py" "$S/catalog/domains/lamp/"     # the world, before any program
+    if [ -n "$SEED" ]; then                                             # the seed, served from a copy outside the catalog
+      mkdir -p "$S/seed" && cp "$SEED" "$S/seed/$NAME.llp" && printf '%s' "$WANT" > "$S/seed.json"
+    else
+      cp -r "$PKGS/metis-catalog/domains/plant" "$S/catalog/domains/"       # a known domain beside the new one
+      rm -rf "$S/catalog/domains/plant/records" "$S/catalog/domains/plant/build"
+      mkdir -p "$S/catalog/domains/lamp"
+      cp "$HERE/example/lamp/lamp_host.py" "$S/catalog/domains/lamp/"     # the world, before any program
+    fi
   fi
-  export METIS_CATALOG="$S/catalog" METIS_LOOP_RECORDS="$S/records" PI_LOOP_SESSIONS="$S/sessions"
+  if [ -n "$SEED" ]; then
+    export METIS_LOOP_LLP="$S/seed/$NAME.llp"
+    # pi's first message: the seeded task (a client over --mode rpc sends it itself: DIR/seed/task.md)
+    sed -e "s#{{SEED}}#$REL#g" -e "s#{{NAME}}#$NAME#g" "$HERE/prompts/seed-task.md" > "$S/seed/task.md"
+    case " $* " in *" --mode "*) ;; *) TASK=("$(cat "$S/seed/task.md")") ;; esac
+  fi
+  export METIS_CATALOG="$S/catalog" METIS_LOOP_RECORDS="$S/records" PI_LOOP_SESSIONS="$S/sessions" METIS_LOOP_RUN="$S"
   # catalog_take's target: the person's catalog a finished domain is taken into (gated, never a commit)
   export METIS_LOOP_TAKE_INTO="${METIS_LOOP_TAKE_INTO-$PKGS/metis-catalog}"
   # the REPL starts beside a known domain: formalize shows the model the served
@@ -93,4 +136,4 @@ export METIS_LOOP_SDK_PY="$SDK_PY"                    # the extensions' catalog:
 export METIS_LOOP_AGENT_PY="${METIS_LOOP_AGENT_PY:-$AGENT/py/.venv/bin/python}"
 export METIS_LOOP_AGENT_DIR="$AGENT/py"
 case "$FORMALIZE_MODEL" in *-cpu) export METIS_LOOP_CUDA="" ;; esac   # the domain agent too
-exec "$HERE/pi.sh" --model "$MODEL" --system-prompt "$HERE/prompts/loop-system.md" "$@"
+exec "${METIS_LOOP_PI:-$HERE/pi.sh}" --model "$MODEL" --system-prompt "$HERE/prompts/loop-system.md" "$@" "${TASK[@]}"

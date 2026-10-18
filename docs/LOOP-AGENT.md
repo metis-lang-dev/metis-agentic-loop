@@ -46,6 +46,7 @@ AGENT-LOOP.md's steps, each with the tools it uses and the state it leaves behin
 | **revise** | the missing behaviour is described, drafted as an extension, and gated as one | `repl_mine`, `repl_formalize`, `repl_gate`, `repl_show` | a candidate that passed `gate` |
 | **apply** | the extension is written, gated | `catalog_apply` what=extension | `domains/<n>/extensions/<name>.llp` |
 | **re-exercise** | the domain is opened again on the catalog as it is now; the same situation must now be explained | `domain_open`, … | an explained record, or no surprise |
+| **seed** | a seeded start (`loop.sh --seed PATH.llp`): the REPL serves an existing program, and it becomes the domain's program as it is, gated; formalize and revise are skipped | `catalog_apply` what=served | the domain's program and `domain.yaml` |
 | **take** | when the person asks: the domain is taken from the loop's (scratch) catalog into the person's (`METIS_LOOP_TAKE_INTO`) through the SDK's `take`, with a README of the run and its bundle, gated, never a commit | `catalog_take` | `domains/<n>/` in the person's catalog |
 | **stop** | the person stops the run | (pi: abort) | the session file |
 

@@ -10,4 +10,6 @@ The loop, in order:
 7. **re-exercise**: `domain_open` again; the same situation must now be explained.
 8. **take** (only when the person asks): `catalog_take` with the domain takes it from this loop's catalog into the person's, behind the same approval.
 
+A seeded start (the task names a seed program) skips formalize: the seed is the person's program. Apply it with `catalog_apply` what=served, and never change its rules unless the person asks and approves the diff.
+
 Rules: call one tool at a time and read its result. Copy names and numbers exactly as the results print them; never invent an atom, an event or a number. When the person steers, follow them. Say briefly what you did and what you will do next.

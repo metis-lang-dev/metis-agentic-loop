@@ -5,6 +5,7 @@
 //   node/bin/node --experimental-strip-types --test test/extensions.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -85,7 +86,7 @@ test("metis-repl: the apply gate — no person, a refusal, an ungated candidate 
 	assert.match(r.content[0].text, /applied: .*lamp\.llp.*domain\.yaml.*serves .*lamp\.llp with its host/);
 	assert.match(readFileSync(join(cat, "domains", "lamp", "lamp.llp"), "utf8"), /^catalog lamp 1\./);
 	assert.match(readFileSync(join(cat, "domains", "lamp", "domain.yaml"), "utf8"), /program: lamp\.llp\nhost: lamp_host\.py:make\n/);
-	const argv = readFileSync(join(cat, "stub.log"), "utf8").trim().split("\n").map((l) => JSON.parse(l).argv);
+	const argv = readFileSync(join(cat, "stub.log"), "utf8").trim().split("\n").map((l) => JSON.parse(l)).filter((l) => l.argv).map((l) => l.argv);
 	assert.deepEqual(argv.at(-1).slice(0, 2), ["--json", "--host"]);   // reopened on the program, with its host
 	await p.emit("session_shutdown", {}, {});
 	env(false);
@@ -187,6 +188,97 @@ test("metis-repl: catalog_take takes a domain into the person's catalog, behind 
 		delete process.env.METIS_LOOP_TAKE_INTO;
 		await p.emit("session_shutdown", {}, {}); // a failed assert must not leave the REPL child holding the run open
 	}
+});
+
+test("metis-repl: what=served writes the program the REPL serves, as it is (a seed); a blank world has none", async () => {
+	const cat = env(true);
+	let p = fakePi();
+	repl(p.api);
+	await p.emit("session_start", {}, ui(true));
+	const served = { toolName: "catalog_apply", toolCallId: "v", input: { domain: "story", what: "served" } };
+	try {
+		assert.match((await p.emit("tool_call", served, ui(true))).reason, /blank world/);
+	} finally {
+		await p.emit("session_shutdown", {}, {});
+	}
+	const seed = join(mkdtempSync(join(tmpdir(), "loop-seed-")), "story.llp");
+	const text = "% a seed: its header\ncatalog story 1.\npred a : story.\n#init a 1\n";
+	writeFileSync(seed, text);
+	process.env.METIS_LOOP_LLP = seed;
+	p = fakePi();
+	repl(p.api);
+	await p.emit("session_start", {}, ui(true));
+	try {
+		const shown: string[] = [];
+		const watch = { hasUI: true, ui: { confirm: async (t: string, b: string) => (shown.push(`${t}\n${b}`), true), notify: () => {} } };
+		assert.equal(await p.emit("tool_call", served, watch), undefined);
+		assert.match(shown[0], /domains\/story\/story\.llp \(new\), domains\/story\/domain\.yaml \(new\)\?[\s\S]*\+% a seed: its header/);
+		const r = await p.tools.get("catalog_apply").execute("v", served.input);
+		assert.match(r.content[0].text, /^applied: domains\/story\/story\.llp, domains\/story\/domain\.yaml\./);
+		assert.equal(readFileSync(join(cat, "domains", "story", "story.llp"), "utf8"), text);   // byte for byte
+		assert.doesNotMatch(readFileSync(process.env.STUB_LOG!, "utf8"), /"op": "show"/);       // no candidate asked for
+	} finally {
+		process.env.METIS_LOOP_LLP = "";
+		await p.emit("session_shutdown", {}, {});
+	}
+});
+
+test("loop.sh --seed: the run's seed, its name, the task as pi's first message; a run is seeded once", () => {
+	const run = (dir: string, ...args: string[]) => {
+		const r = spawnSync(join(HERE, "..", "loop.sh"), ["--scratch", dir, ...args], {
+			encoding: "utf8",
+			env: { ...process.env, METIS_LOOP_PI: join(HERE, "stub", "pi"), MODEL: "ollama/metis-gemma4-e4b-cpu", METIS_CONFIG: "",
+				METIS_LOOP_SDK_PY: process.env.TEST_SDK_PY ?? join(PKGS, ".venv", "bin", "python"), METIS_LOOP_TAKE_INTO: "" },
+		});
+		return { code: r.status, out: r.stdout ? JSON.parse(r.stdout) : null, err: r.stderr };
+	};
+	const src = mkdtempSync(join(tmpdir(), "loop-seedsrc-"));
+	writeFileSync(join(src, "love-story.llp"), "catalog love-story 1.\n");
+	writeFileSync(join(src, "3lp.llp"), "catalog three-pigs 1.\n");
+	const dir = mkdtempSync(join(tmpdir(), "loop-seeded-"));
+	const a = run(dir, "--seed", join(src, "love-story.llp"));
+	assert.equal(a.code, 0, a.err);
+	assert.equal(a.out.env.METIS_LOOP_LLP, join(dir, "seed", "love_story.llp"));     // the stem, - as _
+	assert.equal(readFileSync(join(dir, "seed", "love_story.llp"), "utf8"), "catalog love-story 1.\n");
+	assert.deepEqual(JSON.parse(readFileSync(join(dir, "seed.json"), "utf8")), { seed: join(src, "love-story.llp"), name: "love_story" });
+	assert.equal(a.out.env.METIS_LOOP_RUN, dir);
+	assert.equal(a.out.env.METIS_CATALOG, join(dir, "catalog"));
+	assert.ok(!existsSync(join(dir, "catalog", "domains", "lamp")) && !existsSync(join(dir, "catalog", "domains", "plant")));
+	const task = a.out.args[a.out.args.length - 1];
+	assert.match(task, /The REPL serves an existing program, the seed: `[^`]*love-story\.llp`\. Make it the catalog domain `love_story`/);
+	assert.match(task, /`catalog_apply` with domain=love_story what=served/);
+	assert.equal(readFileSync(join(dir, "seed", "task.md"), "utf8").trim(), task.trim());
+	assert.equal(run(dir, "--seed", join(src, "love-story.llp")).code, 0);              // the same seed again: the same run
+	assert.match(run(dir, "--seed", join(src, "3lp.llp"), "--name", "pigs").err, /seeded otherwise/);
+	assert.match(run(dir).err, /is a seeded run/);
+	const rpc = run(dir, "--seed", join(src, "love-story.llp"), "--mode", "rpc");
+	assert.equal(rpc.out.args[rpc.out.args.length - 1], "rpc");                        // a client sends the task itself
+	const d2 = mkdtempSync(join(tmpdir(), "loop-seeded-"));
+	assert.match(run(d2, "--seed", join(src, "3lp.llp")).err, /'3lp': lowercase letters, digits, _ \(give --name NAME\)/);
+	assert.equal(run(d2, "--seed", join(src, "3lp.llp"), "--name", "three_pigs").out.env.METIS_LOOP_LLP, join(d2, "seed", "three_pigs.llp"));
+	assert.match(run(mkdtempSync(join(tmpdir(), "loop-seeded-")), "--name", "x").err, /--name goes with --seed/);
+	const plain = mkdtempSync(join(tmpdir(), "loop-plain-"));
+	assert.equal(run(plain).code, 0);                                                    // unseeded: the lamp's world, as before
+	assert.ok(existsSync(join(plain, "catalog", "domains", "lamp", "lamp_host.py")));
+	assert.match(run(plain, "--seed", join(src, "3lp.llp"), "--name", "p").err, /unseeded catalog already/);
+});
+
+// the seeded start end to end with the real processes (example/seeded.ts): metis, the domain
+// agent and the loop SDK, into a scratch target; skipped where metis-agent is not installed
+const AGENT_PY = process.env.TEST_AGENT_PY ?? join(AGENT, "py", ".venv", "bin", "python");
+const hasAgent = spawnSync(AGENT_PY, ["-c", "import metis_agent.intent_domain"], { cwd: join(AGENT, "py") }).status === 0;
+test("example/seeded.ts: a fiction program seeded, applied as it is, opened, run and taken", { skip: !hasAgent && "no metis-agent" }, () => {
+	const dir = mkdtempSync(join(tmpdir(), "loop-seeded-e2e-"));
+	const r = spawnSync(join(PKGS, "metis-agentic-loop", "node", "bin", "node"),
+		["--experimental-strip-types", "--no-warnings", join(HERE, "..", "example", "seeded.ts"),
+			join(PKGS, "metis-catalog", "domains", "fiction", "love_triangle.llp"), dir], {
+		encoding: "utf8", timeout: 240000,
+		env: { ...process.env, METIS_LOOP_METIS: process.env.REAL_METIS ?? join(PKGS, ".venv", "bin", "metis"),
+			METIS_LOOP_SDK_PY: process.env.TEST_SDK_PY ?? join(PKGS, ".venv", "bin", "python"), METIS_LOOP_AGENT_PY: AGENT_PY },
+	});
+	const out = JSON.parse(readFileSync(join(dir, "seeded.json"), "utf8"));
+	assert.ok(out.ok, `${JSON.stringify(out.checks)}\n${r.stdout.slice(-3000)}`);
+	assert.equal(out.gates, 3);                                                           // served, intents, take
 });
 
 test("metis-domain: J from intent.yaml, T from tools.json, the clock; a surprise is steered in", async () => {
