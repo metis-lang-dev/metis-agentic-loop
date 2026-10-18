@@ -283,7 +283,8 @@ test("loop.sh --seed: the run's seed, its name, the task as pi's first message; 
 	assert.equal(a.out.env.METIS_CATALOG, join(dir, "catalog"));
 	assert.ok(!existsSync(join(dir, "catalog", "domains", "lamp")) && !existsSync(join(dir, "catalog", "domains", "plant")));
 	const task = a.out.args[a.out.args.length - 1];
-	assert.match(task, /The REPL serves an existing program, the seed: `[^`]*love-story\.llp`\. Make it the catalog domain `love_story`/);
+	// the exact path (it holds # and &: bash's patsub_replacement must not expand the &)
+	assert.ok(task.includes("The REPL serves an existing program, the seed: `" + join(src, "love-story.llp") + "`. Make it the catalog domain `love_story`"), task.slice(0, 300));
 	assert.match(task, /`catalog_apply` with domain=love_story what=served/);
 	assert.equal(readFileSync(join(dir, "seed", "task.md"), "utf8").trim(), task.trim());
 	assert.equal(run(dir, "--seed", join(src, "love-story.llp")).code, 0);              // the same seed again: the same run
