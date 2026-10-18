@@ -400,6 +400,7 @@ test("metis-repl: after a refusal the gate shows what changed since that proposa
 		// never written: an edit of it says how to fix it (the live run's model tried that first)
 		const early = { toolName: "catalog_edit", toolCallId: "x", input: { domain: "story", path: "README.md", old_string: "Twi.", new_string: "Two." } };
 		assert.match((await p.emit("tool_call", early, ctx)).reason, /README\.md was never written: the person refused its proposal\. Send it again through catalog_apply/);
+		assert.match((await p.emit("tool_call", { ...early, input: { ...early.input, path: "./README.md" } }, ctx)).reason, /was never written/);
 		// the next proposal: what changed since the refused one, then the diff against the disk
 		assert.equal(await p.emit("tool_call", rd("One. Two."), ctx), undefined);
 		assert.match(shown[1], /README\.md \(new\) \(changed since you refused it\)\?/);
@@ -417,6 +418,13 @@ test("metis-repl: after a refusal the gate shows what changed since that proposa
 		assert.match(shown[4], /^-One\. Two\.\n\+One, two\.\n/m);
 		await p.tools.get("catalog_edit").execute("f", fix.input);
 		assert.equal(readFileSync(join(d, "README.md"), "utf8"), before.replace("One. Two.", "One, two."));
+		// the file moves between the gate and the write: the write is refused, nothing written (review note 5b)
+		const again = { ...fix, toolCallId: "g", input: { ...fix.input, old_string: "One, two.", new_string: "One; two." } };
+		assert.equal(await p.emit("tool_call", again, ctx), undefined);
+		const moved = readFileSync(join(d, "README.md"), "utf8").replace("# story — a seed", "# story — a seed, moved");
+		writeFileSync(join(d, "README.md"), moved);
+		await assert.rejects(p.tools.get("catalog_edit").execute("g", again.input), /changed after the person approved the edit: nothing written/);
+		assert.equal(readFileSync(join(d, "README.md"), "utf8"), moved);
 	} finally {
 		await p.emit("session_shutdown", {}, {});
 	}

@@ -19,7 +19,7 @@
 //   METIS_LOOP_TAKE_INTO the catalog catalog_take takes a domain into (loop.sh --scratch: metis-catalog)
 //   METIS_LOOP_RUN     the run's directory (loop.sh --scratch DIR: records/, seed.json), for the taken domain's README
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, posix, resolve } from "node:path";
 import { Type } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { cap, JsonlChild, type Line } from "./lib/jsonl.ts";
@@ -200,12 +200,19 @@ export default function (pi: ExtensionAPI) {
 		if (!NAME.test(p.domain)) throw new Error(`domain ${JSON.stringify(p.domain)}: lowercase letters, digits, _`);
 		const root = writeRoot();
 		const d = catalog.get(p.domain, root); // the loop's catalog has it (the SDK's error otherwise)
-		const rel = `domains/${p.domain}/${p.path}`;
+		const rel = `domains/${p.domain}/${posix.normalize(p.path)}`;
 		if (!existsSync(join(d.dir, p.path)) && refused.get(resolve(root))?.has(rel))
 			throw new Error(`${p.path} was never written: the person refused its proposal. Send it again through catalog_apply with only the fix; its gate shows what changed since`);
 		const e: catalog.Edit = { path: p.path, old_string: p.old_string, new_string: p.new_string, replace_all: !!p.replace_all };
-		return { tool: "catalog_edit", domain: p.domain, root, reopen: !!d.program && resolve(d.dir, p.path) === resolve(d.program),
-			files: catalog.planEdit(p.domain, e, root, since(root)), run: () => catalog.edit(p.domain, e, root) };
+		const files = catalog.planEdit(p.domain, e, root, since(root));
+		// the write is what the gate showed: a file that moved since (the same edit now gives another text) is refused
+		const run = () => {
+			const now = catalog.planEdit(p.domain, e, root);
+			if (now.length !== files.length || now.some((f, i) => f.path !== files[i].path || f.text !== files[i].text))
+				throw new Error(`${p.path} changed after the person approved the edit: nothing written; propose it again`);
+			return catalog.edit(p.domain, e, root);
+		};
+		return { tool: "catalog_edit", domain: p.domain, root, reopen: !!d.program && resolve(d.dir, p.path) === resolve(d.program), files, run };
 	}
 
 	// catalog_take: the SDK's take from the loop's catalog into the person's — the
@@ -351,7 +358,7 @@ export default function (pi: ExtensionAPI) {
 				: f.diff).join("").replace(/\n$/, "");
 		const verb = pl.tool === "catalog_take" ? "Take into" : pl.tool === "catalog_edit" ? "Edit in" : "Apply to";
 		const ok = await ctx.ui.confirm(`${verb} the catalog ${pl.root}: ${what}?`, body);
-		remember(pl, ok);
+		if (!ok) remember(pl, false); // an approval forgets the refused text once its write is done (execute)
 		if (!ok) return { block: true, reason: "the person did not approve this write" };
 		plans.set(event.toolCallId, pl);
 		return undefined;

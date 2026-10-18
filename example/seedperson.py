@@ -15,7 +15,8 @@ DIR/ask/<n>.ans:
   settled: 'stop', or the text of the next prompt
 pi's own cost (its usage.cost) over --max-usd aborts the run. At the end DIR/run.json
 holds the reason, the seconds, pi's cost, the requests and every gate's answer; DIR/DONE
-appears. The key's own spend is example/openrouter_key.py's, read before and after.
+appears. With OPENROUTER_API_KEY set, run.json also has the key's usage before and after
+(example/openrouter_key.py) and their difference, usd_by_key.
 """
 import argparse
 import json
@@ -27,6 +28,17 @@ import time
 from pathlib import Path
 
 LOOP = Path(__file__).resolve().parents[1]           # metis-agentic-loop
+
+
+def key_usage():
+    """The OpenRouter key's usage in USD (example/openrouter_key.py), or None without a key."""
+    if not os.environ.get("OPENROUTER_API_KEY"):
+        return None
+    r = subprocess.run([sys.executable, str(LOOP / "example" / "openrouter_key.py")], capture_output=True, text=True)
+    try:
+        return json.loads(r.stdout)["usage"]
+    except (ValueError, KeyError):
+        return None
 
 
 def main():
@@ -46,7 +58,12 @@ def main():
     cmd = ["systemd-run", "--user", "--scope", "-q", "-p", "MemoryMax=6G", "-p", "MemorySwapMax=0",
            str(LOOP / "loop.sh"), "--scratch", str(d), "--seed", a.seed] + (["--name", a.name] if a.name else []) + \
           ["--mode", "rpc"]
+    before = key_usage()
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=open(d / "pi.stderr", "w"), env=env)
+    # the time limit holds while readline waits on a silent pi: the watchdog ends it
+    watchdog = threading.Timer(a.minutes * 60, proc.kill)
+    watchdog.daemon = True
+    watchdog.start()
     ev = open(d / "events.jsonl", "w")
     tr = open(d / "transcript.md", "w")
     t0 = time.monotonic()
@@ -59,10 +76,14 @@ def main():
         tr.flush()
 
     def send(rec):
-        proc.stdin.write((json.dumps(rec) + "\n").encode())
-        proc.stdin.flush()
+        try:
+            proc.stdin.write((json.dumps(rec) + "\n").encode())
+            proc.stdin.flush()
+        except (BrokenPipeError, OSError):          # pi has exited: the run's end is still written
+            return False
         ev.write(json.dumps({"sent": rec}) + "\n")
         ev.flush()
+        return True
 
     def question(kind, text):
         nonlocal n
@@ -82,9 +103,16 @@ def main():
 
     task_f = d / "seed" / "task.md"
     for _ in range(120):
-        if task_f.exists():
+        if task_f.exists() or proc.poll() is not None:
             break
         time.sleep(0.5)
+    if not task_f.exists():                          # loop.sh refused the seed, or never got there
+        proc.kill()
+        out = {"seed": a.seed, "reason": "no seed/task.md (see pi.stderr)", "rc": proc.wait()}
+        (d / "run.json").write_text(json.dumps(out, indent=1))
+        (d / "DONE").write_text(json.dumps(out) + "\n")
+        print(json.dumps(out))
+        return 1
     task = task_f.read_text()
     say(f"# seeded run: {a.seed} on {a.model}\n\nstarted {time.strftime('%F %T')}\n\n## the person (the task)\n\n{task}")
     send({"id": "p1", "type": "prompt", "message": task})
@@ -95,7 +123,7 @@ def main():
             break
         raw = proc.stdout.readline()
         if not raw:
-            reason = "pi exited"
+            reason = "time budget" if time.monotonic() - t0 > a.minutes * 60 else "pi exited"
             break
         try:
             rec = json.loads(raw)
@@ -153,6 +181,7 @@ def main():
                 break
             say(f"## the person ({el:.0f} s)\n\n{ans.strip()}\n")
             send({"type": "prompt", "message": ans.strip()})
+    watchdog.cancel()
     send({"type": "abort"})
     time.sleep(2)
     try:
@@ -162,6 +191,11 @@ def main():
         proc.kill()
     out = {"seed": a.seed, "model": a.model, "reason": reason, "seconds": round(time.monotonic() - t0),
            "pi_usd": round(usd, 5), "requests": reqs, "gates": gates}
+    if before is not None:
+        time.sleep(15)                               # the key's usage lags the last request a little
+        after = key_usage()
+        out.update(key_usage_before=before, key_usage_after=after,
+                   usd_by_key=round(after - before, 6) if after is not None else None)
     (d / "run.json").write_text(json.dumps(out, indent=1))
     say(f"\n## end: {reason}\n")
     (d / "DONE").write_text(json.dumps(out) + "\n")
