@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -650,7 +650,9 @@ test("metis-domain: domain_episodes — 20 seeded nav episodes, deterministic, n
 	assert.match(t, /\noutcome dead: 0 in \d+\/20, 1 in \d+\/20\n/);
 	assert.match(t, /\ngym reward: mean -?[\d.]+, min -?[\d.]+, max -?[\d.]+; episodes done 20\/20\n/);
 	assert.match(t, /likelihood under the program, P\(the world's answer \| the action the program sent\), per action: \d+ scored/);
-	assert.match(t, /the least likely: seed \d+ beat \d+: [\d.e-]+ (mv|die)_\w+\[/);
+	assert.match(t, /the least likely answers of the world: seed \d+ beat \d+: the program drew (mv|die)_\w+\[[^\]]*\]; the world answered (mv|die)_\w+\[[^\]]*\] \(move-\w+\), which the program gives p = [\d.e-]+/);
+	assert.match(t, /per episode: seed 1: ends with [^,]+, \d+ beats, /);              // its outcome, not only its reward
+	assert.match(t, /seed \d+: ends with at\(x21_y20\), \d+ beats, \d+ scored, log -?[\d.]+, reward -?\d+/);   // the goal, said as the goal
 	// a wrong rate, every rule kept (die ×5): nothing is impossible, the likelihood drops
 	const five = await run(navCatalog((d) => {
 		const h = join(d, "nav_host.py");
@@ -689,6 +691,7 @@ test("loop.sh --seed PKG_DIR: the package whole in DIR/seed/domains/NAME/, its p
 	assert.equal(a.code, 0, a.err);
 	const at = join(dir, "seed", "domains", "pigs");
 	assert.equal(a.out.env.METIS_LOOP_LLP, join(at, "pigs.llp"));                     // served where its includes resolve
+	assert.equal(a.out.env.METIS_RDDL_PY, process.env.METIS_RDDL_PY ?? join(PKGS, ".venv", "bin", "python")); // an RDDL host's gym (step 2, finding 1)
 	assert.deepEqual(readdirSync(at).sort(), ["domain.yaml", "pigs.llp", "pigs_rules.llp"]); // no build/
 	assert.ok(existsSync(join(dir, "seed", "tools", "intents.py")));
 	assert.deepEqual(JSON.parse(readFileSync(join(dir, "seed.json"), "utf8")), { seed: src, name: "pigs", package: true });
@@ -711,4 +714,35 @@ test("example/seeded.ts on a package (nav): served whole with its include and ho
 	for (const c of ["the package came whole, every file byte for byte", "its episodes are measured, the likelihood per action",
 		"the same seeds measure the same", "the target has every other file of the package"])
 		assert.equal(out.checks[c], true, c);
+});
+
+test("metis-repl: what=served on a package seed says that a display and line given are not used (rddl-worlds step 2, finding 2)", async () => {
+	const cat = env(true);
+	const run = mkdtempSync(join(tmpdir(), "loop-pkgrun-"));
+	const pkg = join(run, "seed", "domains", "pigs");
+	mkdirSync(pkg, { recursive: true });
+	writeFileSync(join(pkg, "domain.yaml"), "display: the pigs\nline: three pigs and a wolf\nprogram: pigs.llp\n");
+	writeFileSync(join(pkg, "pigs.llp"), "% the pigs\ncatalog pigs 1.\n");
+	writeFileSync(join(run, "seed.json"), JSON.stringify({ seed: pkg, name: "pigs", package: true }));
+	Object.assign(process.env, { METIS_LOOP_RUN: run, METIS_LOOP_LLP: join(pkg, "pigs.llp") });
+	const p = fakePi();
+	repl(p.api);
+	await p.emit("session_start", {}, ui(true));
+	try {
+		const sv = { toolName: "catalog_apply", toolCallId: "v", input: { domain: "pigs", what: "served", display: "the dog", line: "a robot dog" } };
+		assert.equal(await p.emit("tool_call", sv, ui(true)), undefined);
+		const r = (await p.tools.get("catalog_apply").execute("v", sv.input)).content[0].text;
+		assert.match(r, /^applied: domains\/pigs\/pigs\.llp, domains\/pigs\/domain\.yaml\./);
+		assert.match(r, /The package's own domain\.yaml is used as it is, so the display and line given here were not: it has display "the pigs" and line "three pigs and a wolf"\./);
+		assert.equal(readFileSync(join(cat, "domains", "pigs", "domain.yaml"), "utf8"), readFileSync(join(pkg, "domain.yaml"), "utf8"));
+		// nothing given, nothing said
+		rmSync(join(cat, "domains", "pigs"), { recursive: true });
+		const plain = { ...sv, toolCallId: "w", input: { domain: "pigs", what: "served" } };
+		assert.equal(await p.emit("tool_call", plain, ui(true)), undefined);
+		assert.doesNotMatch((await p.tools.get("catalog_apply").execute("w", plain.input)).content[0].text, /were not/);
+	} finally {
+		delete process.env.METIS_LOOP_RUN;
+		process.env.METIS_LOOP_LLP = "";
+		await p.emit("session_shutdown", {}, {});
+	}
 });

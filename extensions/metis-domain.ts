@@ -306,10 +306,10 @@ export default function (pi: ExtensionAPI) {
 					if (Array.isArray(sc.outcomes)) {
 						measure = "outcome";
 						for (const o of sc.outcomes)
-							score(o.p, c.beat, `${o.event} (${Object.keys(o.action ?? {}).join(" ")}; the world: ${(o.answered_by ?? []).join(" ") || o.unscored || "none of the alternatives"})`);
+							score(o.p, c.beat, `the program drew ${o.event}; the world answered ${(o.answered_by ?? []).join(" or ") || "none of its alternatives"} (${Object.keys(o.action ?? {}).join(" ")})`);
 					} else {
 						measure = measure ?? "beat";
-						score(sc.likelihood, c.beat, `the reading${sc.mismatch?.length ? ` ${JSON.stringify(sc.mismatch)}` : ""}`);
+						score(sc.likelihood, c.beat, `the host's reading${sc.mismatch?.length ? ` (against the program's state: ${JSON.stringify(sc.mismatch)})` : ""}`);
 					}
 					for (const d of sc.mismatch ?? [])
 						for (const [atom, v] of Object.entries(d as Record<string, number>)) {
@@ -366,8 +366,14 @@ export default function (pi: ExtensionAPI) {
 				[...mism.entries()].sort((x, y) => y[1].beats - x[1].beats)
 					.map(([a, m]) => `${a} ${m.beats}× in ${m.episodes.size} episode(s) (+${m.more} −${m.less})`).join("; "));
 		const least = low.sort((x, y) => x.p - y.p).slice(0, 10);
-		if (least.length) rows.push("the least likely: " + least.map((w) => `seed ${w.seed} beat ${w.beat}: ${w.p.toPrecision(3)} ${w.what}`).join("; "));
-		rows.push("per episode: " + eps.map((e) => `seed ${e.seed}: ${e.beats} beats, ${e.scored} scored, log ${e.loglik === null ? "−∞" : f(e.loglik)}${e.reward !== undefined ? `, reward ${e.reward}` : ""}`).join("; "));
+		if (least.length)
+			rows.push("the least likely answers of the world: " + least.map((w) => `seed ${w.seed} beat ${w.beat}: ${w.what}, which the program gives p = ${w.p.toPrecision(3)}`).join("; "));
+		// each episode's end: the reported atoms it holds, beside its reward (a reward alone is misread)
+		const ends = (e: Episode) => {
+			const held = Object.entries(e.counts).filter(([, v]) => v > 0).map(([a, v]) => (v === 1 ? a : `${a} ${v}`));
+			return held.length ? `ends with ${held.join(" ")}` : "ends with none of the reported atoms";
+		};
+		rows.push("per episode: " + eps.map((e) => `seed ${e.seed}: ${ends(e)}, ${e.beats} beats, ${e.scored} scored, log ${e.loglik === null ? "−∞" : f(e.loglik)}${e.reward !== undefined ? `, reward ${e.reward}` : ""}`).join("; "));
 		rows.push(`The domain is now at the end of episode seed ${seed0 + n - 1}; domain_open starts it afresh.`);
 		return rows.join("\n");
 	}

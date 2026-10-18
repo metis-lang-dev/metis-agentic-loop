@@ -55,6 +55,8 @@ def main():
     ask = d / "ask"
     ask.mkdir(exist_ok=True)
     env = dict(os.environ, MODEL=a.model, METIS_LOOP_CUDA="")
+    # an RDDL world's gym runs under the packages' shared venv (loop.sh's default too; rddl-worlds step 2)
+    env.setdefault("METIS_RDDL_PY", str(LOOP.parent / ".venv" / "bin" / "python"))
     cmd = ["systemd-run", "--user", "--scope", "-q", "-p", "MemoryMax=6G", "-p", "MemorySwapMax=0",
            str(LOOP / "loop.sh"), "--scratch", str(d), "--seed", a.seed] + (["--name", a.name] if a.name else []) + \
           ["--mode", "rpc"]

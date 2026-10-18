@@ -119,7 +119,8 @@ export default function (pi: ExtensionAPI) {
 	// root: the catalog the write goes to; run: the write the person approved; tool: whose
 	// plan it is (one tool's approval never runs another's write); note: no write, and why
 	type Tool = "catalog_apply" | "catalog_edit" | "catalog_take";
-	type Plan = { tool: Tool; domain: string; root: string; files: catalog.Planned[]; run: () => catalog.Applied; reopen: boolean; note?: string };
+	// say: a word for the model with the write's result (what was given and not used)
+	type Plan = { tool: Tool; domain: string; root: string; files: catalog.Planned[]; run: () => catalog.Applied; reopen: boolean; note?: string; say?: string };
 	type ApplyArgs = { domain: string; what: string; name?: string; text?: string; title?: string; display?: string; line?: string };
 
 	// the last proposal of each file the person refused, by catalog: the next plan diffs from it
@@ -178,8 +179,14 @@ export default function (pi: ExtensionAPI) {
 		if (p.what === "served" && seed?.package) {
 			if (p.domain !== seed.name) throw new Error(`the seed is the package ${seed.name}: catalog_apply domain=${seed.name} what=served`);
 			const from = join(runDir(), "seed");
+			// its domain.yaml as it is: a display or line given here is not used, and the result says so
+			let say: string | undefined;
+			if (p.display !== undefined || p.line !== undefined) {
+				const own = catalog.get(p.domain, from);
+				say = ` The package's own domain.yaml is used as it is, so the display and line given here were not: it has display ${JSON.stringify(own.display ?? null)} and line ${JSON.stringify(own.line ?? null)}.`;
+			}
 			return { tool: "catalog_apply", domain: p.domain, root, reopen: true, files: catalog.planTake(p.domain, from, {}, root, since(root)),
-				run: () => catalog.take(p.domain, from, {}, root) }; // its domain.yaml as it is: display and line its own
+				run: () => catalog.take(p.domain, from, {}, root), say };
 		}
 		if (p.what === "served") {
 			// the program the REPL serves, as it is (loop.sh --seed: the seed): no candidate, no rule changed
@@ -263,7 +270,7 @@ export default function (pi: ExtensionAPI) {
 				: ` The REPL now serves ${d.program}${host ? " with its host" : ""}.`;
 		}
 		return {
-			content: [{ type: "text" as const, text: `applied: ${written.length ? written.join(", ") : "nothing (the catalog has it already)"}.${after}` }],
+			content: [{ type: "text" as const, text: `applied: ${written.length ? written.join(", ") : "nothing (the catalog has it already)"}.${after}${pl.say ?? ""}` }],
 			details: { written, fingerprint: out.fingerprint },
 		};
 	}
@@ -286,8 +293,8 @@ export default function (pi: ExtensionAPI) {
 			name: Type.Optional(Type.String({ description: "what=extension: the extension's file name, without .llp" })),
 			text: Type.Optional(Type.String({ description: "what=readme: the summary paragraph — what the program tells, each claim from the program (a rule, a header line, a --run output shown here)" })),
 			title: Type.Optional(Type.String({ description: "what=readme: what the world is, for the title line `# <domain> — <title>`" })),
-			display: Type.Optional(Type.String({ description: "what=served|program: domain.yaml's display, the world's short name (\"the dog\")" })),
-			line: Type.Optional(Type.String({ description: "what=served|program: domain.yaml's line, one line on what the world is" })),
+			display: Type.Optional(Type.String({ description: "what=served|program: domain.yaml's display, this world's short name, from its program (a package seed keeps its own)" })),
+			line: Type.Optional(Type.String({ description: "what=served|program: domain.yaml's line, one line on what this world is (a package seed keeps its own)" })),
 		}),
 		async execute(id) {
 			return execute(id, "catalog_apply");

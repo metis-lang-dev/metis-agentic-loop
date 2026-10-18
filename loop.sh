@@ -126,6 +126,9 @@ if [ "$OLLAMA_URL" != http://127.0.0.1:11434 ]; then       # pi's provider at th
 fi
 # the loop SDK's python (metis_loop_sdk: the model adapters)
 SDK_PY="${METIS_LOOP_SDK_PY:-$PKGS/.venv/bin/python}"
+# an RDDL world's host runs its gym under this python (tools/rddl_host.py: pyRDDLGym); a scratch
+# catalog has no .venv beside it and the domain agent's venv has no gym (rddl-worlds step 2, finding 1)
+export METIS_RDDL_PY="${METIS_RDDL_PY:-$PKGS/.venv/bin/python}"
 "$SDK_PY" -c "import metis_loop_sdk.models" 2>/dev/null || {
   echo "no loop SDK in $SDK_PY: $SDK_PY -m pip install -e $PKGS/metis-loop/sdk (or set METIS_LOOP_SDK_PY)" >&2; exit 1; }
 # the server serves the model on the GPU? (the SDK's probe; a system service started
