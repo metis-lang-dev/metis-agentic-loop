@@ -102,7 +102,7 @@ The run's catalog is a scratch one (`tools/`, the plant beside the lamp), so cop
 
 ## A seeded start
 
-`loop.sh --scratch DIR --seed PATH.llp [--name NAME]` starts from an existing program instead of prose: the six fiction programs (once `metis-catalog/domains/fiction/*.llp`) became catalog domains this way (fiction-port step 2: `domains/love_triangle/`, `tragedy/`, `herstory/`, `talespin/`, `three_pigs/`, `three_pigs_connectives/`).
+`loop.sh --scratch DIR --seed PATH.llp [--name NAME]` starts from an existing program instead of prose: the six fiction programs (once `metis-catalog/domains/fiction/*.llp`) became catalog domains this way (fiction-port step 2: `domains/love_triangle/`, `tragedy/`, `herstory/`, `talespin/`, `three_pigs/`, `three_pigs_connectives/`; under `domains/ceptre/` since, the Ceptre ports' own license).
 - The REPL serves a copy of the seed (`DIR/seed/NAME.llp`); `DIR/seed.json` records it. NAME defaults to the file's stem with `-` as `_` (`3lp` needs `--name`). A run is seeded once: another seed needs a new DIR. `--episodes N` (1–50, default 20) is the n of the task's `domain_episodes` for an RDDL world: it is in the task from its first message, so the model never runs another n before the person's (rddl-watch s-cfe94dca).
 - pi's first message is the seeded task (`prompts/seed-task.md`, also `DIR/seed/task.md`; over `--mode rpc` the client sends it):
   1. read the program (`repl_show base`);
