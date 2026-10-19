@@ -673,18 +673,19 @@ test("metis-domain: domain_episodes — 20 seeded nav episodes, deterministic, n
 
 // rddl-worlds step 3 (opus's finding 8): an observing world (wildfire: the host acts, the program sends no action)
 // was "0 scored, zero-probability episodes 0/N" beside a surprise in every episode; its beats are scored by
-// their reading now, and the stall's p = 0 makes the episode impossible
-test("metis-domain: domain_episodes on an observing world (wildfire) scores its beats by the reading; the stall is a zero-probability episode", { skip: !hasGym && "no metis-agent or pyRDDLGym" }, async () => {
+// their reading. rddl-watch s-cfe94dca: the pass restarts at every beat (step 3 stalled at the second, a p = 0
+// beat), so the readings are the program's to price: no beat is impossible
+test("metis-domain: domain_episodes on an observing world (wildfire) scores its beats by the reading; every pass is priced", { skip: !hasGym && "no metis-agent or pyRDDLGym" }, async () => {
 	const p = await openNav(navCatalog(undefined, "wildfire"), "wildfire");
 	try {
 		const d = await p.tools.get("domain_episodes").execute("e", { n: 2, seed: 1, max_beats: 4 });
 		const t = d.content[0].text;
 		assert.equal(d.details.measure, "outcome");
-		assert.ok(d.details.episodes.every((e: any) => e.scored === 0 && e.idle.scored > 0 && e.idle.zero > 0 && e.loglik === null));
+		assert.ok(d.details.episodes.every((e: any) => e.scored === 0 && e.idle.scored === 4 && e.idle.zero === 0 && e.loglik !== null));
 		assert.match(t, /per action \(the program sent none: the host acts, an observing world\): 0 scored;/);
-		assert.match(t, /zero-probability episodes 2\/2/);
-		assert.match(t, /\nbeats with no action the program sent, P\(the host's reading \| the beat's last input\): \d+ scored; p = 0 in \d+ beat\(s\) of 2\/2 episode\(s\)\n/);
-		assert.match(t, /seed 1: [^;]*, \d+ beats with no action \(\d+ with p = 0\)/);
+		assert.match(t, /zero-probability episodes 0\/2/);
+		assert.match(t, /\nbeats with no action the program sent, P\(the host's reading \| the beat's last input\): 8 scored; mean log per beat -?\d+\.\d+ [^\n]*; p = 0 in 0 beat\(s\) of 0\/2 episode\(s\)\n/);
+		assert.match(t, /seed 1: [^;]*, 4 beats with no action \(log -?\d+\.\d+\)/);
 	} finally {
 		await p.emit("session_shutdown", {}, {});
 	}
