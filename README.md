@@ -1,5 +1,7 @@
 # metis-agentic-loop — the agentic loop, hosted in pi (docs/LOOP-AGENT.md)
 
+[![ci](https://github.com/metis-lang-dev/metis-agentic-loop/actions/workflows/ci.yml/badge.svg)](https://github.com/metis-lang-dev/metis-agentic-loop/actions/workflows/ci.yml)
+
 pi hosts the agentic loop. The two metis extensions give it its tools. Everything
 pi needs is pinned and installed here, not globally.
 
@@ -135,3 +137,7 @@ ollama create metis-gemma4-e4b -f ollama/Modelfile    # once (from this checkout
 
 Each run writes its own scratch catalog, the pi session and a transcript
 (`transcript.md` or `scripted.md`) into the directory it is given.
+
+## License
+
+Apache License 2.0 (see `LICENSE`, `NOTICE`).

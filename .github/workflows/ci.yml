@@ -62,8 +62,10 @@ jobs:
           # OpenAI-compatible face formalize uses on OpenRouter (metis-loop 7932969),
           # take, catalog_take's (metis-loop 8c30fda), edit, since, display/line and the
           # README's mechanical parts (loop-fixes s-855d8067), and take carrying the
-          # files a program includes (rddl-worlds s-242c7c3f: a package seed)
-          pip install "metis-loop-sdk @ git+https://github.com/metis-lang-dev/metis-loop@sdk-v0.1.5#subdirectory=sdk"
+          # files a program includes (rddl-worlds s-242c7c3f: a package seed); sdk-v0.1.6:
+          # take carries a manifest's notch and keeps every file's bytes (CRLF), a notch
+          # never edited (release-check s-7dc259fc: the pin follows the newest tag)
+          pip install "metis-loop-sdk @ git+https://github.com/metis-lang-dev/metis-loop@sdk-v0.1.6#subdirectory=sdk"
           python -m metis_loop_sdk.catalog intents --help | grep -q -- --spec
           python -m metis_loop_sdk.catalog take --help > /dev/null
           python -m metis_loop_sdk.catalog edit --help | grep -q -- --replace-all
