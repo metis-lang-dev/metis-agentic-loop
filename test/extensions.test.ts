@@ -313,6 +313,7 @@ test("loop.sh --seed: the run's seed, its name, the task as pi's first message; 
 // agent and the loop SDK, into a scratch target; skipped where metis-agent is not installed
 const AGENT_PY = process.env.TEST_AGENT_PY ?? join(AGENT, "py", ".venv", "bin", "python");
 const hasAgent = spawnSync(AGENT_PY, ["-c", "import metis_agent.intent_domain"], { cwd: join(AGENT, "py") }).status === 0;
+if (!hasAgent && process.env.TEST_REQUIRE_AGENT) throw new Error(`TEST_REQUIRE_AGENT: ${AGENT_PY} cannot import metis_agent beside ${AGENT}`);
 test("example/seeded.ts: a fiction program seeded, applied as it is, opened, run and taken", { skip: !hasAgent && "no metis-agent" }, () => {
 	const dir = mkdtempSync(join(tmpdir(), "loop-seeded-e2e-"));
 	const r = spawnSync(join(PKGS, "metis-agentic-loop", "node", "bin", "node"),
@@ -566,6 +567,7 @@ test("metis-domain: a domain with no intents (love_triangle) opens with no verbs
 // Navigation gym, opens through domain_open on the real domain agent; its program moves the robot,
 // the gym answers, the clock runs to the gym's horizon. Skipped where metis-agent or pyRDDLGym is missing
 const hasGym = hasAgent && spawnSync(process.env.METIS_RDDL_PY ?? join(PKGS, ".venv", "bin", "python"), ["-c", "import pyRDDLGym"]).status === 0;
+if (!hasGym && process.env.TEST_REQUIRE_GYM) throw new Error("TEST_REQUIRE_GYM: no interpreter with pyRDDLGym ($METIS_RDDL_PY)");
 test("metis-domain: an RDDL world (nav) opens with no verbs; its program acts, the gym answers to the horizon", { skip: !hasGym && "no metis-agent or pyRDDLGym" }, async () => {
 	env(false);
 	Object.assign(process.env, {

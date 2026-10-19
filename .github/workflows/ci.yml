@@ -34,6 +34,14 @@ jobs:
         with:
           repository: metis-lang-dev/metis-catalog
           path: metis-catalog
+      # the domain agent (public): the domain tools' sessions over the selected packages run it —
+      # example/seeded.ts on love_triangle and on nav, love_triangle's and nav's domain tools,
+      # wildfire's episodes; they skipped without it
+      - name: Checkout metis-agent (public; the domain agent the domain tools run)
+        uses: actions/checkout@v4
+        with:
+          repository: metis-lang-dev/metis-agent
+          path: metis-agent
       - name: Checkout metis-lang (public; metisc checks a catalog_edit of a program)
         uses: actions/checkout@v4
         with:
@@ -63,6 +71,13 @@ jobs:
           python -c "from metis_loop_sdk import catalog; assert catalog.includes"
           python -m metis_loop_sdk.models openai-command --help > /dev/null
           python -c "import metis_loop_sdk.models.openai, metis_loop_sdk.catalog; print('sdk', metis_loop_sdk.__version__)"
+      # nav's and wildfire's hosts step the IPPC gym in an interpreter of their own: pyRDDLGym and
+      # rddlrepository, public on PyPI (MIT), pinned as the packages' .venv has them; ~15 s
+      - name: The gym for the RDDL packages' hosts (its own venv, METIS_RDDL_PY)
+        run: |
+          python -m venv /tmp/gym
+          /tmp/gym/bin/pip install -q pyRDDLGym==2.7 rddlrepository==2.2
+          echo "METIS_RDDL_PY=/tmp/gym/bin/python" >> "$GITHUB_ENV"
       - name: 'Node and pi, pinned (setup.sh: checksummed node, npm ci from the lock)'
         working-directory: metis-agentic-loop
         run: ./setup.sh
@@ -73,4 +88,5 @@ jobs:
         working-directory: metis-agentic-loop
         run: |
           export REAL_METIS="$(command -v metis)" TEST_AGENT_PY="$(command -v python)" TEST_SDK_PY="$(command -v python)" TEST_REQUIRE_METISC=1
+          export TEST_REQUIRE_AGENT=1 TEST_REQUIRE_GYM=1
           ./node/bin/node --experimental-strip-types --test test/extensions.test.ts
