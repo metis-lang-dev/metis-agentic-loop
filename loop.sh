@@ -11,6 +11,9 @@
 #                                        file's stem, - as _) through catalog_apply what=served —
 #                                        its rules unchanged — then exercise it and, when the
 #                                        person asks, catalog_take it (prompts/seed-task.md).
+#                                        --episodes N: the n of the task's domain_episodes (an RDDL
+#                                        world's measure; default 20), in the task from its first
+#                                        message, so the model never runs another n before the person's
 #                                        PKG_DIR, a domain package (domains/<name>/: its manifest,
 #                                        program, included files, host): copied whole into
 #                                        DIR/seed/domains/NAME/ (NAME: the directory's name), its
@@ -37,14 +40,18 @@ AGENT="${METIS_AGENT:-$PKGS/metis-agent}"           # the domain agent's checkou
 TASK=()
 if [ "${1:-}" = --scratch ]; then
   S="$(mkdir -p "$2" && cd "$2" && pwd)"; shift 2
-  SEED="" NAME=""
+  SEED="" NAME="" EPISODES=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --seed) SEED="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"; shift 2 ;;
       --name) NAME="$2"; shift 2 ;;
+      --episodes) EPISODES="$2"; shift 2 ;;
       *) break ;;
     esac
   done
+  if [ -n "$EPISODES" ] && ! { [[ "$EPISODES" =~ ^[1-9][0-9]*$ ]] && [ "$EPISODES" -le 50 ]; }; then
+    echo "loop.sh: --episodes $EPISODES: 1-50 (domain_episodes' n)" >&2; exit 1
+  fi
   PACKAGE=""
   if [ -n "$SEED" ]; then
     if [ -d "$SEED" ]; then                                             # a domain package: domains/<name>/ as it is
@@ -63,8 +70,8 @@ if [ "${1:-}" = --scratch ]; then
     elif [ -d "$S/catalog/domains" ]; then
       echo "loop.sh: $S has an unseeded catalog already: name a new DIR for a seeded start" >&2; exit 1
     fi
-  elif [ -n "$NAME" ]; then
-    echo "loop.sh: --name goes with --seed" >&2; exit 1
+  elif [ -n "$NAME" ] || [ -n "$EPISODES" ]; then
+    echo "loop.sh: --name and --episodes go with --seed" >&2; exit 1
   elif [ -f "$S/seed.json" ]; then
     echo "loop.sh: $S is a seeded run ($(cat "$S/seed.json")): give its --seed again, or name a new DIR" >&2; exit 1
   fi
@@ -97,6 +104,7 @@ if [ "${1:-}" = --scratch ]; then
   if [ -n "$SEED" ]; then
     # pi's first message: the seeded task (a client over --mode rpc sends it itself: DIR/seed/task.md)
     t="$(cat "$HERE/prompts/seed-task.md")"; t="${t//"{{SEED}}"/"$REL"}"; t="${t//"{{NAME}}"/"$NAME"}"   # no sed: any path
+    t="${t//"{{EPISODES}}"/"${EPISODES:-20}"}"
     printf '%s\n' "$t" > "$S/seed/task.md"
     case " $* " in *" --mode "*) ;; *) TASK=("$(cat "$S/seed/task.md")") ;; esac
   fi

@@ -261,17 +261,24 @@ export default function (pi: ExtensionAPI) {
 	type Episode = {
 		seed: number; beats: number; over: boolean; loglik: number | null; scored: number; unscored: number; zero: number; rare: number;
 		surprises: number; reward?: number; step?: number; done?: boolean; counts: Record<string, number>;
-		idle: { scored: number; loglik: number; zero: number }; // beats with no action the program sent, in a world that maps actions
+		idle: { scored: number; loglik: number; zero: number; sampledZero: number }; // beats with no action the program sent, in a world that maps actions
+		// the watch's pricing of the beat's reading (a lockstep or followed world, rddl-watch s-cfe94dca: every score says its tier):
+		// exact, or sampled (n seeded runs, the 95% half-width ci). A sampled zero is no run of n reaching the reading: below the
+		// tier's resolution, not impossible, so it never makes the episode zero-probability (only an exact zero does)
+		read: { exact: number; sampled: number; loglik: number; nonzero: number; exactZero: number; sampledZero: number; n?: number; ci: number };
 	};
 	type Low = { seed: number; beat: number; p: number; what: string };
 	const RARE = 0.05;
+	// the 95% Wilson upper bound of a sampled zero, z²/(n + z²): what "no run of n reached it" bounds
+	const upper = (n: number) => 1.96 ** 2 / (n + 1.96 ** 2);
 
 	// N episodes, each a reset with its seed (the program's sampler and the host's gym alike), the world lines,
 	// then scored beats to the episode's end: the measure, not the exercise — its surprises are counted, not steered in.
 	// The likelihood: per action the program sent, P(the world's answer | that action) (the domain agent's `outcomes`:
 	// an RDDL world); for a host with no actions, per beat, P(the host's reading | the beat's start). A beat of an
 	// action world in which the program sent no action (every beat of an observing world, where the host acts; nav
-	// once the robot is gone) is scored by its reading, apart: its p = 0 makes the episode impossible as well
+	// once the robot is gone) is scored by its reading, apart: its p = 0 makes the episode impossible as well, unless
+	// the p is the sampled tier's (a zero there is below its resolution: rare, counted apart, never impossible)
 	async function episodes(n: number, seed0: number, world: string[] | undefined, maxBeats: number) {
 		if (!agent) throw new Error("no domain is open: call domain_open first");
 		const eps: Episode[] = [];
@@ -290,24 +297,48 @@ export default function (pi: ExtensionAPI) {
 				if (e) throw new Error(`episode seed ${seed}: the world lines were refused: ${e.error}`);
 			}
 			const ep: Episode = { seed, beats: 0, over: false, loglik: 0, scored: 0, unscored: 0, zero: 0, rare: 0, surprises: 0, counts: {},
-				idle: { scored: 0, loglik: 0, zero: 0 } };
-			const score = (p: number | null | undefined, beat: number, what: string) => {
+				idle: { scored: 0, loglik: 0, zero: 0, sampledZero: 0 },
+				read: { exact: 0, sampled: 0, loglik: 0, nonzero: 0, exactZero: 0, sampledZero: 0, ci: 0 } };
+			const below = (sc: any) => `below the sampled tier's resolution: no run of ${sc.n} reached it (seed ${sc.seed}; p < ${upper(sc.n).toPrecision(2)} at 95%)`;
+			const score = (p: number | null | undefined, beat: number, what: string, sc?: any) => {
 				if (typeof p !== "number") return void ep.unscored++;
+				if (p <= 0 && sc?.tier === "sampled") {         // counted in the tier's row (read), not as a probability
+					ep.rare++;
+					return void low.push({ seed, beat, p, what: `${what}, ${below(sc)}` });
+				}
 				ep.scored++;
 				if (p <= 0) ep.zero++;
 				else if (ep.loglik !== null) ep.loglik += Math.log(p);
 				if (p < RARE) ep.rare++;
 				if (p < 1) low.push({ seed, beat, p, what });
 			};
-			const idle = (p: number | null | undefined, beat: number, what: string) => {
+			const idle = (p: number | null | undefined, beat: number, what: string, sc?: any) => {
 				if (typeof p !== "number") return;
 				ep.idle.scored++;
-				if (p <= 0) {
+				if (p <= 0 && sc?.tier === "sampled") {
+					ep.idle.sampledZero++;
+					what = `${what}, ${below(sc)}`;
+				} else if (p <= 0) {
 					ep.idle.zero++;
 					ep.zero++;
 				} else ep.idle.loglik += Math.log(p);
 				if (p < RARE) ep.rare++;
 				if (p < 1) low.push({ seed, beat, p, what });
+			};
+			const read = (sc: any) => {
+				if (sc.tier !== "exact" && sc.tier !== "sampled") return;
+				const r = ep.read, p = sc.likelihood;
+				r[sc.tier as "exact" | "sampled"]++;
+				if (sc.tier === "sampled") {
+					r.n = sc.n;
+					r.ci = Math.max(r.ci, sc.ci ?? 0);
+				}
+				if (typeof p !== "number") return;
+				if (p > 0) {
+					r.loglik += Math.log(p);
+					r.nonzero++;
+				} else if (sc.tier === "sampled") r.sampledZero++;
+				else r.exactZero++;
 			};
 			for (let b = 0; b < maxBeats; b++) {
 				const out = await agent.request({ clock: "beat", score: true }, (x) => x.clock === "beat");
@@ -317,16 +348,17 @@ export default function (pi: ExtensionAPI) {
 				const sc = c.score;
 				if (sc) {
 					ep.counts = sc.counts ?? ep.counts;
+					read(sc);
 					if (Array.isArray(sc.outcomes) && !sc.outcomes.length) {
 						measure = measure ?? "outcome";
-						idle(sc.likelihood, c.beat, `a beat with no action the program sent: the host's reading${sc.mismatch?.length ? ` (against the program's state: ${JSON.stringify(sc.mismatch)})` : ""}`);
+						idle(sc.likelihood, c.beat, `a beat with no action the program sent: the host's reading${sc.mismatch?.length ? ` (against the program's state: ${JSON.stringify(sc.mismatch)})` : ""}`, sc);
 					} else if (Array.isArray(sc.outcomes)) {
 						measure = "outcome";
 						for (const o of sc.outcomes)
 							score(o.p, c.beat, `the program drew ${o.event}; the world answered ${(o.answered_by ?? []).join(" or ") || "none of its alternatives"} (${Object.keys(o.action ?? {}).join(" ")})`);
 					} else {
 						measure = measure ?? "beat";
-						score(sc.likelihood, c.beat, `the host's reading${sc.mismatch?.length ? ` (against the program's state: ${JSON.stringify(sc.mismatch)})` : ""}`);
+						score(sc.likelihood, c.beat, `the host's reading${sc.mismatch?.length ? ` (against the program's state: ${JSON.stringify(sc.mismatch)})` : ""}`, sc);
 					}
 					for (const d of sc.mismatch ?? [])
 						for (const [atom, v] of Object.entries(d as Record<string, number>)) {
@@ -381,9 +413,23 @@ export default function (pi: ExtensionAPI) {
 		if (idleN) {
 			const z = eps.filter((e) => e.idle.zero);
 			const ok = eps.filter((e) => !e.idle.zero);
+			const sz = sum(eps.map((e) => e.idle.sampledZero));
+			const okN = sum(ok.map((e) => e.idle.scored - e.idle.sampledZero));
 			rows.push(`beats with no action the program sent, P(the host's reading | the beat's last input): ${idleN} scored` +
-				(ok.length && sum(ok.map((e) => e.idle.scored)) ? `; mean log per beat ${f(sum(ok.map((e) => e.idle.loglik)) / sum(ok.map((e) => e.idle.scored)))} (episodes without a p = 0 beat)` : "") +
-				`; p = 0 in ${sum(eps.map((e) => e.idle.zero))} beat(s) of ${z.length}/${eps.length} episode(s)`);
+				(okN ? `; mean log per beat ${f(sum(ok.map((e) => e.idle.loglik)) / okN)} (episodes without a p = 0 beat${sz ? ", sampled zeros left out" : ""})` : "") +
+				`; p = 0 in ${sum(eps.map((e) => e.idle.zero))} beat(s) of ${z.length}/${eps.length} episode(s)` +
+				(sz ? `; sampled zeros (below the tier's resolution, not impossible) ${sz} in ${eps.filter((e) => e.idle.sampledZero).length}/${eps.length} episode(s)` : ""));
+		}
+		// the watch's pricing (a lockstep or followed world): its tier, and the reading per beat whatever was scored above
+		// (in a lockstep world with actions, an action's outcome is read on what it decides; the rest of the pass is here)
+		const ex = sum(eps.map((e) => e.read.exact)), sa = sum(eps.map((e) => e.read.sampled));
+		if (ex + sa) {
+			const nz = sum(eps.map((e) => e.read.nonzero)), ns = eps.find((e) => e.read.n)?.read.n;
+			rows.push(`the reading per beat, as the watch prices it: ${ex + sa} beats, tier exact ${ex}, sampled ${sa}` +
+				(sa ? ` (${ns} seeded runs each, 95% half-width up to ${f(Math.max(...eps.map((e) => e.read.ci)))})` : "") +
+				(nz ? `; mean log per beat ${f(sum(eps.map((e) => e.read.loglik)) / nz)} over its ${nz} nonzero beats` : "") +
+				`; zero: exact ${sum(eps.map((e) => e.read.exactZero))} (impossible), sampled ${sum(eps.map((e) => e.read.sampledZero))}` +
+				(ns ? ` (no run of ${ns} reached the reading: p < ${upper(ns).toPrecision(2)} at 95%, not impossible)` : ""));
 		}
 		rows.push(`surprises (readings the program gives zero probability) ${sum(eps.map((e) => e.surprises))} in ${eps.filter((e) => e.surprises).length} episode(s); ` +
 			`rare (likelihood < ${RARE}) ${sum(eps.map((e) => e.rare))} in ${eps.filter((e) => e.rare).length} episode(s)`);

@@ -293,6 +293,8 @@ test("loop.sh --seed: the run's seed, its name, the task as pi's first message; 
 	// the exact path (it holds # and &: bash's patsub_replacement must not expand the &)
 	assert.ok(task.includes("The REPL serves an existing program, the seed: `" + join(src, "love-story.llp") + "`. Make it the catalog domain `love_story`"), task.slice(0, 300));
 	assert.match(task, /`catalog_apply` with domain=love_story what=served/);
+	assert.match(task, /`domain_episodes` with seed=1 and n=20: the person's n/);         // the default n, in the task itself
+	assert.ok(!task.includes("{{"), "every placeholder is filled");
 	assert.equal(readFileSync(join(dir, "seed", "task.md"), "utf8").trim(), task.trim());
 	assert.equal(run(dir, "--seed", join(src, "love-story.llp")).code, 0);              // the same seed again: the same run
 	assert.match(run(dir, "--seed", join(src, "3lp.llp"), "--name", "pigs").err, /seeded otherwise/);
@@ -302,7 +304,16 @@ test("loop.sh --seed: the run's seed, its name, the task as pi's first message; 
 	const d2 = mkdtempSync(join(tmpdir(), "loop-seeded-"));
 	assert.match(run(d2, "--seed", join(src, "3lp.llp")).err, /'3lp': lowercase letters, digits, _ \(give --name NAME\)/);
 	assert.equal(run(d2, "--seed", join(src, "3lp.llp"), "--name", "three_pigs").out.env.METIS_LOOP_LLP, join(d2, "seed", "three_pigs.llp"));
-	assert.match(run(mkdtempSync(join(tmpdir(), "loop-seeded-")), "--name", "x").err, /--name goes with --seed/);
+	assert.match(run(mkdtempSync(join(tmpdir(), "loop-seeded-")), "--name", "x").err, /--name and --episodes go with --seed/);
+	assert.match(run(mkdtempSync(join(tmpdir(), "loop-seeded-")), "--episodes", "5").err, /--name and --episodes go with --seed/);
+	// rddl-watch s-cfe94dca: the person's n is in the task from its first message (step 3's finding 9: the model ran
+	// n=20 before a steer with n=5 arrived); a bad n is refused before anything is made
+	const d5 = mkdtempSync(join(tmpdir(), "loop-seeded-"));
+	assert.match(run(d5, "--seed", join(src, "3lp.llp"), "--name", "pigs", "--episodes", "0").err, /--episodes 0: 1-50/);
+	assert.ok(!existsSync(join(d5, "seed.json")));
+	const e5 = run(d5, "--seed", join(src, "3lp.llp"), "--name", "pigs", "--episodes", "5");
+	assert.equal(e5.code, 0, e5.err);
+	assert.match(e5.out.args[e5.out.args.length - 1], /`domain_episodes` with seed=1 and n=5: the person's n, set before this task began/);
 	const plain = mkdtempSync(join(tmpdir(), "loop-plain-"));
 	assert.equal(run(plain).code, 0);                                                    // unseeded: the lamp's world, as before
 	assert.ok(existsSync(join(plain, "catalog", "domains", "lamp", "lamp_host.py")));
@@ -685,7 +696,34 @@ test("metis-domain: domain_episodes on an observing world (wildfire) scores its 
 		assert.match(t, /per action \(the program sent none: the host acts, an observing world\): 0 scored;/);
 		assert.match(t, /zero-probability episodes 0\/2/);
 		assert.match(t, /\nbeats with no action the program sent, P\(the host's reading \| the beat's last input\): 8 scored; mean log per beat -?\d+\.\d+ [^\n]*; p = 0 in 0 beat\(s\) of 0\/2 episode\(s\)\n/);
+		assert.match(t, /\nthe reading per beat, as the watch prices it: 8 beats, tier exact \d, sampled \d[^\n]*; zero: exact 0 \(impossible\), sampled 0/);
 		assert.match(t, /seed 1: [^;]*, 4 beats with no action \(log -?\d+\.\d+\)/);
+	} finally {
+		await p.emit("session_shutdown", {}, {});
+	}
+});
+
+// rddl-watch s-cfe94dca, opus's finding 1: a lockstep world past the exact filter's budget is priced on the sampled
+// tier, and its zero is no run of n reaching the reading (below the tier's resolution), not an impossible one. tamarisk
+// seed 1 has two in its first four beats (the domain agent's measure, deterministic): counted apart, never a p = 0
+// beat, and the episode keeps its likelihood; the tier is printed
+test("metis-domain: domain_episodes counts a sampled tier's zero apart (tamarisk), never as impossible, and prints the tier", { skip: !hasGym && "no metis-agent or pyRDDLGym" }, async () => {
+	const p = await openNav(navCatalog(undefined, "tamarisk"), "tamarisk");
+	try {
+		const d = await p.tools.get("domain_episodes").execute("e", { n: 1, seed: 1, max_beats: 4 });
+		const t = d.content[0].text;
+		const [e] = d.details.episodes;
+		assert.equal(e.idle.scored, 4);
+		assert.equal(e.idle.sampledZero, 2);
+		assert.equal(e.idle.zero, 0);
+		assert.equal(e.zero, 0);
+		assert.notEqual(e.loglik, null);
+		assert.equal(e.read.exact + e.read.sampled, 4);
+		assert.ok(e.read.sampled >= 2 && e.read.n === 500 && e.read.sampledZero === 2 && e.read.exactZero === 0);
+		assert.match(t, /zero-probability episodes 0\/1/);
+		assert.match(t, /; p = 0 in 0 beat\(s\) of 0\/1 episode\(s\); sampled zeros \(below the tier's resolution, not impossible\) 2 in 1\/1 episode\(s\)\n/);
+		assert.match(t, /\nthe reading per beat, as the watch prices it: 4 beats, tier exact \d, sampled \d \(500 seeded runs each, 95% half-width up to 0\.\d{3}\)[^\n]*; zero: exact 0 \(impossible\), sampled 2 \(no run of 500 reached the reading: p < 0\.0076 at 95%, not impossible\)\n/);
+		assert.match(t, /no run of 500 reached it \(seed \d+; p < 0\.0076 at 95%\)/);
 	} finally {
 		await p.emit("session_shutdown", {}, {});
 	}
