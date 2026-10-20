@@ -10,7 +10,7 @@
 #                                        model to make it the catalog domain NAME (default: the
 #                                        file's stem, - as _) through catalog_apply what=served —
 #                                        its rules unchanged — then exercise it and, when the
-#                                        person asks, catalog_take it (prompts/seed-task.md).
+#                                        person asks, catalog_take it (prompts/metis-seed.md).
 #                                        --episodes N: the n of the task's domain_episodes (an RDDL
 #                                        world's measure; default 20), in the task from its first
 #                                        message, so the model never runs another n before the person's
@@ -35,6 +35,9 @@
 #   METIS_LOOP_PI=<cmd>  run it in pi.sh's place, with pi.sh's arguments (the tests' stand-in)
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# a prompt template's text without its front matter (prompts/*.md are also the pi package's
+# /metis-loop and /metis-seed): the hosted mode's system prompt and seeded task, as they were
+body() { awk 'NR == 1 && $0 == "---" { fm = 1; next } fm && $0 == "---" { fm = 0; next } !fm' "$1"; }
 PKGS="$(cd "$HERE/.." && pwd)"                      # the sibling checkouts
 AGENT="${METIS_AGENT:-$PKGS/metis-agent}"           # the domain agent's checkout
 TASK=()
@@ -103,8 +106,8 @@ if [ "${1:-}" = --scratch ]; then
   fi
   if [ -n "$SEED" ]; then
     # pi's first message: the seeded task (a client over --mode rpc sends it itself: DIR/seed/task.md)
-    t="$(cat "$HERE/prompts/seed-task.md")"; t="${t//"{{SEED}}"/"$REL"}"; t="${t//"{{NAME}}"/"$NAME"}"   # no sed: any path
-    t="${t//"{{EPISODES}}"/"${EPISODES:-20}"}"
+    t="$(body "$HERE/prompts/metis-seed.md")"; t="${t//'$1'/"$REL"}"; t="${t//'$2'/"$NAME"}"   # no sed: any path
+    t="${t//'$3'/"${EPISODES:-20}"}"                                  # the template's $1 $2 $3, filled here
     printf '%s\n' "$t" > "$S/seed/task.md"
     case " $* " in *" --mode "*) ;; *) TASK=("$(cat "$S/seed/task.md")") ;; esac
   fi
@@ -173,4 +176,4 @@ export METIS_LOOP_SDK_PY="$SDK_PY"                    # the extensions' catalog:
 export METIS_LOOP_AGENT_PY="${METIS_LOOP_AGENT_PY:-$AGENT/py/.venv/bin/python}"
 export METIS_LOOP_AGENT_DIR="$AGENT/py"
 case "$FORMALIZE_MODEL" in *-cpu) export METIS_LOOP_CUDA="" ;; esac   # the domain agent too
-exec "${METIS_LOOP_PI:-$HERE/pi.sh}" --model "$MODEL" --system-prompt "$HERE/prompts/loop-system.md" "$@" "${TASK[@]}"
+exec "${METIS_LOOP_PI:-$HERE/pi.sh}" --model "$MODEL" --system-prompt "$(body "$HERE/prompts/metis-loop.md" | sed '$d')" "$@" "${TASK[@]}"

@@ -27,7 +27,7 @@ and the worked example.
   write past the gate, the SDK's checks and the roots.
 - **Host: pi** (`@earendil-works/pi-coding-agent`, pinned in this repository).
   - Built-in tools, context files, skills, prompt templates and MCP are all off.
-  - The system prompt is the loop's own (`prompts/loop-system.md`).
+  - The system prompt is the loop's own (`prompts/metis-loop.md`).
 - **Model, version 1:** Ollama with our Gemma 4 E4B GGUF (`ollama/`).
   - No API keys.
   - pi's Claude OAuth is never used.

@@ -92,3 +92,48 @@ jobs:
           export REAL_METIS="$(command -v metis)" TEST_AGENT_PY="$(command -v python)" TEST_SDK_PY="$(command -v python)" TEST_REQUIRE_METISC=1
           export TEST_REQUIRE_AGENT=1 TEST_REQUIRE_GYM=1
           ./node/bin/node --experimental-strip-types --test test/extensions.test.ts
+
+  # The pi package as a person installs it (pi-release s-8e13f6a8; test/installed.sh): pi
+  # from npm at setup.sh's pinned version, the python side by its three names, the tarball
+  # unpacked and `pi install`ed into a scratch pi, `pi list`, both extensions and both
+  # templates loaded (--mode rpc, no model), the extensions' test against the installed
+  # copy, the tarball's file list = test/pack-files.txt. No domain agent here: its tests skip.
+  installed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: metis-agentic-loop
+      - name: Checkout metis-catalog (public; the test's domains)
+        uses: actions/checkout@v4
+        with:
+          repository: metis-lang-dev/metis-catalog
+          path: metis-catalog
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.3'
+      - name: The python side by name (PyPI; before the first releases, metispy from PyPI and the two masters)
+        run: |
+          if pip download -q --no-deps -d /tmp/probe metis-catalog==0.1.0 metis-loop-sdk==0.1.7 2>/dev/null; then
+            pip install -q metispy metis-catalog metis-loop-sdk
+            echo "python side: metispy, metis-catalog, metis-loop-sdk from PyPI" >> "$GITHUB_STEP_SUMMARY"
+          else
+            git clone -q --depth 1 https://github.com/metis-lang-dev/metis-loop /tmp/metis-loop
+            pip install -q metispy ./metis-catalog /tmp/metis-loop/sdk
+            echo "python side: metispy from PyPI, metis-catalog and metis-loop-sdk from master (not on PyPI yet)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          python -c "import metis, metis_catalog, metis_loop_sdk; print('metis_catalog', metis_catalog.__version__, 'metis_loop_sdk', metis_loop_sdk.__version__)"
+      - name: pi from npm at setup.sh's pinned version
+        run: |
+          v=$(sed -n 's/^PI_VERSION=\([0-9.]*\).*/\1/p' metis-agentic-loop/setup.sh)
+          npm install -g --ignore-scripts --no-audit --no-fund "@earendil-works/pi-coding-agent@$v"
+          echo "pi $v" >> "$GITHUB_STEP_SUMMARY"
+      - name: installed.sh
+        working-directory: metis-agentic-loop
+        run: |
+          export METIS_LOOP_SDK_PY="$(command -v python)" REAL_METIS="$(command -v metis)" TEST_SDK_PY="$(command -v python)"
+          bash test/installed.sh pi

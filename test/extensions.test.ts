@@ -7,13 +7,17 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import repl from "../extensions/metis-repl.ts";
-import domain from "../extensions/metis-domain.ts";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+// the extensions under test: this checkout's, or an installed package's (TEST_PACKAGE_DIR:
+// test/installed.sh, the tarball unpacked and pi-installed)
+const EXT = join(process.env.TEST_PACKAGE_DIR || join(HERE, ".."), "extensions");
+const load = async (f: string) => await import(pathToFileURL(join(EXT, f)).href);
+const repl = (await load("metis-repl.ts")).default;
+const domain = (await load("metis-domain.ts")).default;
 // the sibling checkouts (metis-agentic-loop beside metispy's venv and metis-agent);
 // CI points these at its own installs
 const PKGS = join(HERE, "..", "..");
@@ -804,5 +808,135 @@ test("metis-repl: what=served on a package seed says that a display and line giv
 		delete process.env.METIS_LOOP_RUN;
 		process.env.METIS_LOOP_LLP = "";
 		await p.emit("session_shutdown", {}, {});
+	}
+});
+
+// ---- the pi package (pi-release s-8e13f6a8) --------------------------------
+// the face resolved at load, the templates' run in a pi loop.sh did not start, the domain
+// agent's refusal, the tarball's file list
+
+const LOOP_ENV = ["METIS_CATALOG", "METIS_LOOP_TAKE_INTO", "METIS_LOOP_RUN", "METIS_LOOP_RECORDS", "METIS_CONFIG", "METIS_LOOP_LLP",
+	"FORMALIZE_MODEL", "METIS_LOOP_AGENT_PY", "METIS_LOOP_AGENT_DIR", "METIS_AGENT"];
+function installedEnv(): () => void {
+	const saved = Object.fromEntries(LOOP_ENV.map((k) => [k, process.env[k]]));
+	const log = mkdtempSync(join(tmpdir(), "loop-installed-log-"));
+	for (const k of LOOP_ENV) delete process.env[k];
+	Object.assign(process.env, {
+		METIS_LOOP_METIS: join(HERE, "stub", "metis"),
+		METIS_LOOP_SDK_PY: process.env.TEST_SDK_PY ?? join(PKGS, ".venv", "bin", "python"),
+		REAL_METIS: process.env.REAL_METIS ?? join(PKGS, ".venv", "bin", "metis"),
+		STUB_LOG: join(log, "stub.log"),
+		STUB_GATED: "1",
+	});
+	return () => {
+		for (const k of LOOP_ENV) saved[k] === undefined ? delete process.env[k] : (process.env[k] = saved[k]);
+	};
+}
+const said: string[] = [];
+const pkgCtx = (cwd: string) => ({ hasUI: true, cwd, model: { provider: "ollama", id: "metis-gemma4-e4b" }, ui: { confirm: async () => true, notify: (t: string) => said.push(t) } });
+const stubArgv = () => readFileSync(process.env.STUB_LOG!, "utf8").trim().split("\n").map((l) => JSON.parse(l)).filter((l) => l.argv).map((l) => l.argv);
+
+test("lib/sdk: the face is the SDK's own (no link, no copy here); a python without the SDK is refused with the pip line", async () => {
+	const { faceDir, PIP } = await load("lib/sdk.ts");
+	assert.ok(!existsSync(join(EXT, "sdk")), "extensions/sdk: the face is loaded from where the SDK is installed");
+	assert.ok(!existsSync(join(EXT, "catalog.ts")) && !existsSync(join(EXT, "lib", "catalog.ts")));
+	const dir = faceDir(process.env.TEST_SDK_PY ?? join(PKGS, ".venv", "bin", "python"));
+	assert.ok(existsSync(join(dir, "catalog.ts")), dir);
+	const bare = join(mkdtempSync(join(tmpdir(), "loop-nosdk-")), "python");
+	writeFileSync(bare, "#!/bin/sh\necho 'No module named metis_loop_sdk' >&2\nexit 1\n", { mode: 0o755 });
+	assert.throws(() => faceDir(bare), (e: Error) => e.message.includes(PIP) && /No module named metis_loop_sdk/.test(e.message));
+	assert.equal(PIP, "pip install metispy metis-catalog metis-loop-sdk");
+});
+
+test("metis-repl: /metis-loop in a pi loop.sh did not start makes the lamp's run in its directory and serves plant; again, it continues", async () => {
+	const restore = installedEnv();
+	const dir = mkdtempSync(join(tmpdir(), "loop-installed-"));
+	const p = fakePi();
+	repl(p.api);
+	await p.emit("session_start", {}, pkgCtx(dir));
+	try {
+		assert.deepEqual(await p.emit("input", { text: "/metis-loop" }, pkgCtx(dir)), { action: "continue" });
+		for (const f of ["catalog/domains/plant/plant.llp", "catalog/domains/lamp/lamp_host.py", "catalog/tools/intents.py", "into/domains", "into/tools/intents.py", "records"])
+			assert.ok(existsSync(join(dir, f)), f);
+		assert.ok(!existsSync(join(dir, "catalog", "domains", "plant", "records")) && !existsSync(join(dir, "catalog", "domains", "plant", "build")));
+		assert.equal(process.env.METIS_CATALOG, join(dir, "catalog"));
+		assert.equal(process.env.METIS_LOOP_TAKE_INTO, join(dir, "into"));
+		assert.equal(process.env.METIS_LOOP_RUN, dir);
+		assert.match(readFileSync(process.env.METIS_CONFIG!, "utf8"), /^\[llm\]\nendpoint = "command:\S+ -m metis_loop_sdk\.models ollama-command --model metis-gemma4-e4b --url http:\/\/127\.0\.0\.1:11434"\n$/);
+		assert.equal(stubArgv().at(-1).at(-1), join(dir, "catalog", "domains", "plant", "plant.llp")); // the REPL reopened on plant
+		assert.ok(said.some((t) => t.includes(dir)));
+		const prose = "The lamp's bulb wears out.\nIt says `done(on)`.";                 // verbatim: pi's own expansion splits it shell-like
+		const t = await p.emit("input", { text: `/metis-loop ${prose}` }, pkgCtx(dir));
+		assert.equal(t.action, "transform");
+		assert.ok(t.text.startsWith("You refine a formalization") && t.text.endsWith(`what you will do next.\n\n${prose}`), t.text.slice(-200));
+		assert.doesNotMatch(t.text, /^---|description:|\$@/m);
+		assert.deepEqual(await p.emit("input", { text: "/metis-seed x.llp" }, pkgCtx(dir)), { action: "handled" }); // one run per session
+		assert.deepEqual(await p.emit("input", { text: "hello" }, pkgCtx(dir)), { action: "continue" });
+	} finally {
+		await p.emit("session_shutdown", {}, {});
+		restore();
+	}
+});
+
+test("metis-repl: /metis-seed PATH makes a seeded run and fills in the template's name and episodes; a bad one, or METIS_CATALOG set, is refused", async () => {
+	const restore = installedEnv();
+	const src = mkdtempSync(join(tmpdir(), "loop-seedsrc-"));
+	writeFileSync(join(src, "my-world.llp"), "% a world\ncatalog my_world 1.\n");
+	const dir = mkdtempSync(join(tmpdir(), "loop-installed-seed-"));
+	process.env.METIS_LOOP_RUN = dir; // the run's directory: $METIS_LOOP_RUN, else pi's cwd (src, where the path is read)
+	try {
+		const q = fakePi();
+		repl(q.api);
+		await q.emit("session_start", {}, pkgCtx(src));
+		assert.deepEqual(await q.emit("input", { text: "/metis-seed my-world.llp" }, pkgCtx(src)),
+			{ action: "transform", text: `/metis-seed ${join(src, "my-world.llp")} my_world 20` });
+		assert.equal(readFileSync(join(dir, "seed", "my_world.llp"), "utf8"), "% a world\ncatalog my_world 1.\n");
+		assert.deepEqual(JSON.parse(readFileSync(join(dir, "seed.json"), "utf8")), { seed: join(src, "my-world.llp"), name: "my_world" });
+		assert.equal(stubArgv().at(-1).at(-1), join(dir, "seed", "my_world.llp"));
+		await q.emit("session_shutdown", {}, {});
+		for (const [text, why] of [["/metis-seed my-world.llp World", /lowercase letters/], ["/metis-seed my-world.llp w 0", /episodes 0: 1-50/], ["/metis-seed nothing.llp", /no such file/]] as const) {
+			for (const k of ["METIS_CATALOG", "METIS_LOOP_TAKE_INTO", "METIS_CONFIG"]) delete process.env[k];
+			process.env.METIS_LOOP_RUN = mkdtempSync(join(tmpdir(), "loop-installed-bad-"));
+			const r = fakePi();
+			repl(r.api);
+			said.length = 0;
+			assert.deepEqual(await r.emit("input", { text }, pkgCtx(src)), { action: "handled" });
+			assert.match(said.join("\n"), why);
+		}
+		process.env.METIS_CATALOG = dir;
+		const s = fakePi();
+		repl(s.api);
+		said.length = 0;
+		assert.deepEqual(await s.emit("input", { text: "/metis-seed my-world.llp" }, pkgCtx(src)), { action: "handled" });
+		assert.match(said.join("\n"), /makes a run of its own/);
+		assert.deepEqual(await s.emit("input", { text: "/metis-loop" }, pkgCtx(src)), { action: "continue" }); // the person's catalog
+	} finally {
+		restore();
+	}
+});
+
+test("metis-domain: without the domain agent, domain_open refuses with what to set", async () => {
+	const restore = installedEnv();
+	process.env.METIS_AGENT = mkdtempSync(join(tmpdir(), "loop-noagent-"));
+	process.env.METIS_CATALOG = mkdtempSync(join(tmpdir(), "loop-noagent-cat-"));
+	const p = fakePi();
+	domain(p.api);
+	try {
+		await assert.rejects(p.tools.get("domain_open").execute("o", { domain: "lamp" }), /no domain agent in python3: .*METIS_AGENT/);
+	} finally {
+		await p.emit("session_shutdown", {}, {});
+		restore();
+	}
+});
+
+test("the package's tarball is test/pack-files.txt: rule 3, nothing private", { skip: !existsSync(join(HERE, "..", "node", "bin", "npm")) && "no pinned npm (setup.sh)" }, () => {
+	const npm = join(HERE, "..", "node", "bin", "npm");
+	const r = spawnSync(npm, ["pack", "--dry-run", "--json", "--ignore-scripts"], { cwd: join(HERE, ".."), encoding: "utf8", env: { ...process.env, PATH: `${dirname(npm)}:${process.env.PATH}` } });
+	assert.equal(r.status, 0, r.stderr);
+	const files = JSON.parse(r.stdout)[0].files.map((f: any) => f.path).sort();
+	assert.deepEqual(files, readFileSync(join(HERE, "pack-files.txt"), "utf8").trim().split("\n"));
+	for (const f of files) {
+		const t = readFileSync(join(HERE, "..", f), "utf8");
+		assert.ok(!t.includes("/home/") && !t.includes(hostname()), `${f}: a path or the name of this host`);
 	}
 });

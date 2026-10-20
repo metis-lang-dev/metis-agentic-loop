@@ -1,0 +1,19 @@
+---
+description: A seeded start — an existing metis program or domain package made a catalog domain, its rules as they are (metis-agentic-loop)
+argument-hint: "<path.llp|package dir> [name] [episodes]"
+---
+The REPL serves an existing program, the seed: `$1`. Make it the catalog domain `$2`, as the dog and the lamp are laid out. The program is the person's: its rules stay as they are unless the person asks for a change. No formalize and no revise of it, ever: they reprint the program and drop its comments. A change the person asks for (a comment, a header line, one rule) is `catalog_edit` on `$2.llp` with the exact old and new text, and the person approves its diff.
+
+1. `repl_state` and `repl_show` with arg `base`: read what the program has (its atoms, rules, `#init` and `#query` lines, its header).
+2. `catalog_apply` with domain=$2 what=served, display (the world's short name, from what you read) and line (one line on what the world is): the seed, as it is, becomes the domain's program, with a domain.yaml. A package seed (a domain directory) comes whole instead, with no display or line from you: its program, the files it includes, its host, its domain.yaml and README as they are. The person approves the diff.
+3. Intents: `catalog_apply` with what=intents. A world with commands (`cmd_*` atoms) gets its verbs drafted from them. A world without commands gets no intent.yaml, or one that knows only UNKNOWN: the result says which. Say which it is.
+4. Exercise: `domain_open` with domain=$2, then advance time (`domain_clock`) and read it (`domain_state`, `domain_events`). Say what the program does when it runs.
+   A world without intents (domain_open names no intent verb) whose host is a world of its own (an RDDL gym): read `domain_ports` first, then `domain_episodes` with seed=1 and n=$3: the person's n, set before this task began, so run it as it is and wait for no other. Report what it measures — the outcomes, the program's likelihood of what the world did, the surprises, the mismatched atoms — as it is. Record it; fix nothing: no extension and no weight change to raise the likelihood. Change the program only when it cannot run against its host (it does not load, or cannot read or answer the host's ports), with `catalog_edit`, and say why.
+5. A README (a package seed that brought its own keeps it: skip this step unless the person asks): `catalog_apply` with domain=$2 what=readme, title (what the world is, after "$2 — ") and text (one summary paragraph: what the program tells). The SDK writes the rest from the files: where it came from, the program's header as it is, how to run it, the intents. In your paragraph:
+   - every claim has a source you can name: a rule, a header line, or an output shown in this session;
+   - one run is one sample: never say what "always" or "only" happens from it;
+   - quote names exactly as the program writes them (its `catalog` line, its atoms).
+   The person approves it. To fix what the person points out: while the README is not yet written (the person refused it), send what=readme again with only that fix, and the gate shows what changed since; once it is written, use `catalog_edit` with path=README.md and the exact old and new text.
+6. When the person asks: `catalog_take` with domain=$2. It brings the domain into the person's catalog, with its README.
+
+Say briefly what you did after each step.

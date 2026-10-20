@@ -1,0 +1,17 @@
+LICENSE
+NOTICE
+README.md
+docs/LOOP-AGENT.md
+example/lamp/lamp_host.py
+example/lamp/prose.md
+extensions/lib/jsonl.ts
+extensions/lib/roots.ts
+extensions/lib/run.ts
+extensions/lib/sdk.ts
+extensions/metis-domain.ts
+extensions/metis-repl.ts
+ollama/Modelfile
+ollama/Modelfile.cpu
+package.json
+prompts/metis-loop.md
+prompts/metis-seed.md

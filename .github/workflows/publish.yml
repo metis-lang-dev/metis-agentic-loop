@@ -1,0 +1,58 @@
+name: publish
+
+# @metis-lang-dev/metis-agentic-loop to npm by trusted publishing (pi-release s-8e13f6a8): the
+# npm package's trusted publisher is the GitHub repository metis-lang-dev/metis-agentic-loop and
+# this workflow (publish.yml). No secret, no token: npm authenticates the job's OIDC identity,
+# and the upload carries its provenance.
+#
+#   a push of a tag vX.Y.Z   check the tag against package.json's version and the tarball's file
+#                            list (test/pack-files.txt), then publish: a tag publishes straight
+#                            through (`gh release create vX.Y.Z` pushes it)
+#   workflow_dispatch        the dry run: the checks and `npm publish --dry-run`; no upload
+#
+# A release (README "Releasing"): bump `version` in package.json (npm install --package-lock-only),
+# commit, `gh release create vX.Y.Z`.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  npm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write          # trusted publishing: the OIDC token is the credential (and the provenance)
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.3'
+          registry-url: 'https://registry.npmjs.org'
+      - name: npm 11 (trusted publishing needs npm >= 11.5.1)
+        run: npm install -g --no-audit --no-fund npm@11.6.2 && npm --version
+      - name: The tag is package.json's version
+        run: |
+          v=$(node -p "require('./package.json').version")
+          echo "package.json version: $v"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            [ "$GITHUB_REF_NAME" = "v$v" ] || { echo "::error::tag $GITHUB_REF_NAME is not v$v (package.json's version): bump the version, or tag v$v"; exit 1; }
+          fi
+          echo "### @metis-lang-dev/metis-agentic-loop $v ($GITHUB_REF_TYPE $GITHUB_REF_NAME)" >> "$GITHUB_STEP_SUMMARY"
+      - name: The tarball's files are test/pack-files.txt (rule 3)
+        run: |
+          npm pack --dry-run --json --ignore-scripts | node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () =>
+            console.log(JSON.parse(s)[0].files.map((f) => f.path).sort().join("\n")))' > /tmp/files.txt
+          diff test/pack-files.txt /tmp/files.txt
+      - name: Publish (a tag), or its dry run
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF_TYPE" = tag ]; then
+            npm publish --provenance --access public --ignore-scripts
+          else
+            npm publish --dry-run --access public --ignore-scripts
+          fi

@@ -1,3 +1,7 @@
+---
+description: The metis agentic loop — formalize a world you describe into a catalog domain, apply it at your approval, exercise it, explain its surprises (metis-agentic-loop)
+argument-hint: "[your world, in prose]"
+---
 You refine a formalization of a small world with a person, using only your tools. A world is a domain: a program in the metis language (rules over atoms) that a runtime serves, plus the world it describes (its host).
 
 The loop, in order:
@@ -17,3 +21,5 @@ A domain without intents (domain_open names no intent verb: a world whose progra
 A small change to a file the catalog already has goes through `catalog_edit`: a comment, a header line, a sentence of the README, a value in domain.yaml or intent.yaml, one rule's text. Give the file's exact text as old_string and its replacement as new_string; every other byte stays. Never formalize or revise for such a change: they reprint the whole program, and its comments are lost.
 
 Rules: call one tool at a time and read its result. Copy names and numbers exactly as the results print them; never invent an atom, an event or a number. When the person steers, follow them. Say briefly what you did and what you will do next.
+
+$@

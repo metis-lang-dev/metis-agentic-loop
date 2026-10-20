@@ -9,6 +9,11 @@ the person's turn), and stops the run (abort) at the end or at the budget.
     example/person.py DIR [--model ollama/metis-gemma4-e4b] [--minutes 60]
         [--deny-first]       refuse the first apply (the gate holds: the model must ask)
         [--max-usd X]        abort once the model's cost (pi's usage, the catalog's prices) passes X
+        [--pi CMD]           the person's own pi with the package installed (pi-release s-8e13f6a8),
+                             not loop.sh: CMD --mode rpc --model M in DIR, the first message
+                             /metis-loop with the goal and the prose (the template's run is DIR)
+        [--take]             once the loop is through, ask for the lamp to be taken (catalog_take,
+                             its gate), and end when it is
 
 DIR gets the scratch catalog, the pi session, and:
     events.jsonl    every RPC record, as it came
@@ -54,6 +59,7 @@ STEER_INTENT = ("(the person) Switch the lamp on in the domain with intent_on, t
 STEER_EXERCISE = ("(the person) When you exercise the lamp, switch it on first and then advance the clock "
                   "at least 8 beats before you read it.")
 NUDGE = "(the person) Continue with the next step of the loop."
+TAKE = "(the person) The lamp is right now. Take the lamp into my catalog (catalog_take)."
 # a call written into the text instead of made: Gemma's markers, a JSON call, response: blocks
 FAKE_CALL = re.compile(r"(?:response|call):\w+\{|<\|tool_response>|\{\s*\"name\"\s*:\s*\"\w+\"\s*,\s*\"(?:arguments|parameters)\"")
 
@@ -66,12 +72,15 @@ def main():
     ap.add_argument("--nudges", type=int, default=8)
     ap.add_argument("--deny-first", action="store_true")
     ap.add_argument("--max-usd", type=float, default=0)
+    ap.add_argument("--pi", default="")
+    ap.add_argument("--take", action="store_true")
     a = ap.parse_args()
     d = a.dir.resolve()
     d.mkdir(parents=True, exist_ok=True)
     prose = (HERE / "lamp" / "prose.md").read_text()
     env = dict(os.environ, MODEL=a.model)
-    proc = subprocess.Popen([str(PI / "loop.sh"), "--scratch", str(d), "--mode", "rpc"], stdin=subprocess.PIPE,
+    cmd = a.pi.split() + ["--mode", "rpc", "--model", a.model] if a.pi else [str(PI / "loop.sh"), "--scratch", str(d), "--mode", "rpc"]
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, cwd=d if a.pi else None,
                             stdout=subprocess.PIPE, stderr=open(d / "pi.stderr", "w"), env=env)
     ev = open(d / "events.jsonl", "w")
     tr = open(d / "transcript.md", "w")
@@ -79,6 +88,7 @@ def main():
     stages, opens, turns, n_steer, nudges, denied = {}, 0, 0, 0, 0, 0
     calls = {}
     steer2, used_intent = None, False
+    take_asked, took = False, False
     done_reason = None
     usage = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "usd": 0.0, "requests": 0, "length_stops": 0}
     dead = 0
@@ -106,7 +116,7 @@ def main():
 
     say(f"# The agentic loop's worked example\n\nmodel {a.model}; started {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
     say(f"## the person\n\n{GOAL}{prose}")
-    send({"id": "p1", "type": "prompt", "message": GOAL + prose})
+    send({"id": "p1", "type": "prompt", "message": ("/metis-loop " if a.pi else "") + GOAL + prose})
     stream = proc.stdout
     while True:
         if time.monotonic() - t0 > a.minutes * 60:
@@ -152,6 +162,7 @@ def main():
             if not rec.get("isError") and "refused:" not in json.dumps(rec.get("result") or {})[:200]:
                 if name == "domain_open":          # a stage counts only what went through
                     opens += 1
+                took = took or name == "catalog_take"
                 st = stage_of(name, args)
                 if name == "catalog_apply" and (args or {}).get("what") == "extension":
                     stages.setdefault("revise", {"first": el, "last": el, "calls": 0, "turn_first": turns})["applied"] = True
@@ -188,7 +199,15 @@ def main():
         elif t == "message_end" and rec["message"].get("role") == "custom":
             say(f"**signal** ({el:.0f} s): {str(rec['message'].get('content'))[:800]}\n")
         elif t == "agent_settled":
-            if "re-exercise" in stages:                 # the loop went through to the second open
+            if took:
+                done_reason = "the lamp is taken: settled after catalog_take"
+                break
+            if "re-exercise" in stages and a.take and not take_asked:
+                take_asked = True
+                say(f"## the person ({el:.0f} s)\n\n{TAKE}\n")
+                send({"type": "prompt", "message": TAKE})
+                continue
+            if "re-exercise" in stages and not a.take:  # the loop went through to the second open
                 done_reason = "the loop is through: settled after the re-exercise"
                 break
             if nudges >= a.nudges:
@@ -226,7 +245,7 @@ def main():
     except subprocess.TimeoutExpired:
         proc.kill()
     total = time.monotonic() - t0
-    out = {"model": a.model, "reason": done_reason, "seconds": round(total), "turns": turns, "nudges": nudges,
+    out = {"model": a.model, "pi": a.pi or "loop.sh", "took": took, "reason": done_reason, "seconds": round(total), "turns": turns, "nudges": nudges,
            "denied": denied, "steers": n_steer, "stages": stages, "explained_after": _explained(d),
            "usage": usage, "fails": fails}
     (d / "stages.json").write_text(json.dumps(out, indent=1))

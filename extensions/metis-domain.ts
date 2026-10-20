@@ -19,17 +19,20 @@
 // come with the clock; a surprise also enters the loop as a message.
 //
 // Environment (loop.sh sets them):
-//   METIS_LOOP_AGENT_PY   metis-agent/py's python (the domain agent's venv)
-//   METIS_LOOP_AGENT_DIR  metis-agent/py (the process's working directory)
+//   METIS_LOOP_AGENT_PY   metis-agent/py's python (the domain agent's venv); else METIS_AGENT's
+//   METIS_LOOP_AGENT_DIR  metis-agent/py (the process's working directory); else METIS_AGENT's
+//   METIS_AGENT           a metis-agent checkout (the domain agent is not on PyPI): its py/.venv and py/
 //   METIS_LOOP_METIS      metispy's `metis` (for --tools-json)
 //   METIS_CATALOG         the catalog the domains come from (a scratch copy for trials)
-//   METIS_LOOP_SDK_PY     a python with the loop SDK: a domain's intents come through its catalog (./sdk/catalog.ts, its TypeScript face)
+//   METIS_LOOP_SDK_PY     a python with the loop SDK (else python3 on PATH): a domain's intents come through its catalog (its TypeScript face, lib/sdk.ts)
 //   METIS_LOOP_RECORDS    where the domain agent sinks its records
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { Type, type TSchema } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { cap, JsonlChild, type Line } from "./lib/jsonl.ts";
-import * as catalog from "./sdk/catalog.ts";
+import { catalog } from "./lib/sdk.ts";
 
 const SERVED = new Set(["repl", "watch", "agent"]);
 const NAME = /^[a-z][a-z0-9_]*$/;
@@ -52,6 +55,23 @@ export default function (pi: ExtensionAPI) {
 	const registered = new Set<string>();
 	let seq = 0;
 	const env = () => ({ ...process.env, CUDA_VISIBLE_DEVICES: process.env.METIS_LOOP_CUDA ?? process.env.CUDA_VISIBLE_DEVICES });
+
+	// the domain agent's python and directory: loop.sh's, else a metis-agent checkout's
+	// ($METIS_AGENT), else python3 here — which is asked first, so a pi without the domain
+	// agent refuses domain_open with what to set, not with a traceback
+	function agentPy(): { py: string; cwd?: string } {
+		const a = process.env.METIS_AGENT;
+		const py = process.env.METIS_LOOP_AGENT_PY || (a && existsSync(join(a, "py", ".venv", "bin", "python")) ? join(a, "py", ".venv", "bin", "python") : "python3");
+		const cwd = process.env.METIS_LOOP_AGENT_DIR || (a ? join(a, "py") : undefined);
+		if (!process.env.METIS_LOOP_AGENT_PY) {
+			try {
+				execFileSync(py, ["-c", "import metis_agent.domain_agent"], { cwd, stdio: "ignore" });
+			} catch {
+				throw new Error(`no domain agent in ${py}: the domain tools need metis-agent (not on PyPI) — set METIS_AGENT to a metis-agent checkout with its py/.venv, or METIS_LOOP_AGENT_PY to a python that has metis_agent`);
+			}
+		}
+		return { py, cwd };
+	}
 
 	function surprise(l: Line) {
 		pi.sendMessage(
@@ -113,7 +133,7 @@ export default function (pi: ExtensionAPI) {
 
 	function intentMaterial(d: string): { verbs: { verb: string; meaning: string }[]; slots: Record<string, unknown> } {
 		// intent.yaml itself, read by the loop SDK's catalog (none: no verbs)
-		const y = catalog.intents(d, { spec: true }).spec ?? {};
+		const y = catalog().intents(d, { spec: true }).spec ?? {};
 		return { verbs: y.verbs ?? [], slots: y.slots ?? {} };
 	}
 
@@ -171,10 +191,10 @@ export default function (pi: ExtensionAPI) {
 		async execute(_id, params) {
 			if (!NAME.test(params.domain)) throw new Error(`domain ${JSON.stringify(params.domain)}: lowercase letters, digits, _`);
 			agent?.close();
-			const py = process.env.METIS_LOOP_AGENT_PY || "python3";
+			const { py, cwd } = agentPy();
 			const args = ["-m", "metis_agent.domain_agent", "--domain", params.domain, "--case", "replay", "--consult", "template"];
 			if (process.env.METIS_LOOP_RECORDS) args.push("--records", process.env.METIS_LOOP_RECORDS);
-			agent = new JsonlChild(py, args, { cwd: process.env.METIS_LOOP_AGENT_DIR, env: env() }, (l) => {
+			agent = new JsonlChild(py, args, { cwd, env: env() }, (l) => {
 				if ((l.kind ?? l.signal) === "surprise") surprise(l);
 			});
 			domain = params.domain;

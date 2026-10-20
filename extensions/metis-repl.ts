@@ -10,10 +10,11 @@
 // takes a finished domain from the loop's catalog into the person's, behind it too.
 // A file the person refused is remembered: its next proposal shows what changed since.
 //
-// Environment (loop.sh sets them):
-//   METIS_LOOP_METIS   the metis console script (metispy's `metis`)
+// Environment (loop.sh sets them; in a pi loop.sh did not start, the /metis-loop and
+// /metis-seed templates' run sets the run's own: lib/run.ts):
+//   METIS_LOOP_METIS   the metis console script (metispy's `metis`; else the one beside METIS_LOOP_SDK_PY, else on PATH)
 //   METIS_CATALOG      the catalog catalog_apply writes into (a scratch copy for trials)
-//   METIS_LOOP_SDK_PY  a python with the loop SDK: the catalog is its (./sdk: its TypeScript face, setup.sh links it)
+//   METIS_LOOP_SDK_PY  a python with the loop SDK (else python3 on PATH): the catalog is its (lib/sdk.ts loads its TypeScript face from where it is installed)
 //   METIS_CONFIG       the kernel's dot file ([llm]: formalize's endpoint)
 //   METIS_LOOP_LLP     optional: the program the REPL starts on (else a blank world)
 //   METIS_LOOP_TAKE_INTO the catalog catalog_take takes a domain into (loop.sh --scratch: metis-catalog)
@@ -24,7 +25,8 @@ import { Type } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { cap, JsonlChild, type Line } from "./lib/jsonl.ts";
 import { runDir, takeRoot, writeRoot } from "./lib/roots.ts";
-import * as catalog from "./sdk/catalog.ts";
+import { loopRun, loopText, type Run, seedRun, words } from "./lib/run.ts";
+import { catalog, type Applied, type Edit, type Planned, type Write } from "./lib/sdk.ts";
 
 const NO_WORDS = "(the REPL's wire declares no description for this verb — finding: metispy)";
 const ARG = Type.Object({
@@ -36,7 +38,11 @@ export default function (pi: ExtensionAPI) {
 	let repl: JsonlChild | null = null;
 	let served: string | null = null; // the program file the REPL serves (null: a blank world)
 	const registered = new Set<string>();
-	const metis = () => process.env.METIS_LOOP_METIS || "metis";
+	const metis = () => {
+		const py = process.env.METIS_LOOP_SDK_PY; // metispy's `metis` sits beside the SDK's python in its venv
+		const beside = py && py.includes("/") ? join(dirname(py), "metis") : null;
+		return process.env.METIS_LOOP_METIS || (beside && existsSync(beside) ? beside : "metis");
+	};
 
 	function spawn(llp: string | null, host: string | null): JsonlChild {
 		const args = ["--json", ...(host ? ["--host", host] : []), ...(llp ? [llp] : [])];
@@ -111,7 +117,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	// ---- catalog_apply: the one write, gated --------------------------------
-	// through the loop SDK's catalog (its TypeScript face, ./sdk/catalog.ts: the
+	// through the loop SDK's catalog (its TypeScript face, lib/sdk.ts loads it: the
 	// py SDK's CLI): the plan is its dry run (each file's diff, what the person
 	// approves), the write its apply with the same text — domain.yaml checked by
 	// the catalog's loader, the intent files generated, never a commit
@@ -120,7 +126,7 @@ export default function (pi: ExtensionAPI) {
 	// plan it is (one tool's approval never runs another's write); note: no write, and why
 	type Tool = "catalog_apply" | "catalog_edit" | "catalog_take";
 	// say: a word for the model with the write's result (what was given and not used)
-	type Plan = { tool: Tool; domain: string; root: string; files: catalog.Planned[]; run: () => catalog.Applied; reopen: boolean; note?: string; say?: string };
+	type Plan = { tool: Tool; domain: string; root: string; files: Planned[]; run: () => Applied; reopen: boolean; note?: string; say?: string };
 	type ApplyArgs = { domain: string; what: string; name?: string; text?: string; title?: string; display?: string; line?: string };
 
 	// the last proposal of each file the person refused, by catalog: the next plan diffs from it
@@ -138,14 +144,14 @@ export default function (pi: ExtensionAPI) {
 		if (!["program", "served", "extension", "intents", "readme"].includes(p.what))
 			throw new Error(`what: program | served | extension | intents | readme, not ${JSON.stringify(p.what)}`);
 		const root = writeRoot();
-		const planned = (w: catalog.Write, reopen = false): Plan => ({
-			tool: "catalog_apply", domain: p.domain, root, reopen, files: catalog.plan(p.domain, w, root, since(root)),
-			run: () => catalog.apply(p.domain, w, root),
+		const planned = (w: Write, reopen = false): Plan => ({
+			tool: "catalog_apply", domain: p.domain, root, reopen, files: catalog().plan(p.domain, w, root, since(root)),
+			run: () => catalog().apply(p.domain, w, root),
 		});
 		const shown = { ...(p.display !== undefined ? { display: p.display } : {}), ...(p.line !== undefined ? { line: p.line } : {}) };
 		let known = true;
 		try {
-			catalog.get(p.domain, root);
+			catalog().get(p.domain, root);
 		} catch {
 			known = false;
 		}
@@ -157,11 +163,11 @@ export default function (pi: ExtensionAPI) {
 			// the intents); the model's words are the summary paragraph and the title only
 			if (!known) throw new Error(`no domain ${p.domain} in the loop's catalog yet: its README follows its program`);
 			if (!p.text?.trim()) throw new Error("what=readme: text is the summary paragraph (what the program tells; the SDK writes the rest)");
-			return planned({ readme: catalog.readme(p.domain, { from: root, run: runDir(), summary: p.text, title: p.title }) });
+			return planned({ readme: catalog().readme(p.domain, { from: root, run: runDir(), summary: p.text, title: p.title }) });
 		}
 		if (p.what === "intents") {
 			// a first intent.yaml drafted from the program; apply names it in domain.yaml (intent: {spec})
-			const sk = catalog.skeleton(p.domain, root);
+			const sk = catalog().skeleton(p.domain, root);
 			if (sk === null)
 				return { tool: "catalog_apply", domain: p.domain, root, reopen: false, files: [], run: () => ({ written: [], diff: "", fingerprint: null }),
 					note: "no intent.yaml: the world takes no commands (its program has no cmd_* atom), so the agents open it with no verbs" };
@@ -182,11 +188,11 @@ export default function (pi: ExtensionAPI) {
 			// its domain.yaml as it is: a display or line given here is not used, and the result says so
 			let say: string | undefined;
 			if (p.display !== undefined || p.line !== undefined) {
-				const own = catalog.get(p.domain, from);
+				const own = catalog().get(p.domain, from);
 				say = ` The package's own domain.yaml is used as it is, so the display and line given here were not: it has display ${JSON.stringify(own.display ?? null)} and line ${JSON.stringify(own.line ?? null)}.`;
 			}
-			return { tool: "catalog_apply", domain: p.domain, root, reopen: true, files: catalog.planTake(p.domain, from, {}, root, since(root)),
-				run: () => catalog.take(p.domain, from, {}, root), say };
+			return { tool: "catalog_apply", domain: p.domain, root, reopen: true, files: catalog().planTake(p.domain, from, {}, root, since(root)),
+				run: () => catalog().take(p.domain, from, {}, root), say };
 		}
 		if (p.what === "served") {
 			// the program the REPL serves, as it is (loop.sh --seed: the seed): no candidate, no rule changed
@@ -220,18 +226,18 @@ export default function (pi: ExtensionAPI) {
 	function planEdit(p: EditArgs): Plan {
 		if (!NAME.test(p.domain)) throw new Error(`domain ${JSON.stringify(p.domain)}: lowercase letters, digits, _`);
 		const root = writeRoot();
-		const d = catalog.get(p.domain, root); // the loop's catalog has it (the SDK's error otherwise)
+		const d = catalog().get(p.domain, root); // the loop's catalog has it (the SDK's error otherwise)
 		const rel = `domains/${p.domain}/${posix.normalize(p.path)}`;
 		if (!existsSync(join(d.dir, p.path)) && refused.get(resolve(root))?.has(rel))
 			throw new Error(`${p.path} was never written: the person refused its proposal. Send it again through catalog_apply with only the fix; its gate shows what changed since`);
-		const e: catalog.Edit = { path: p.path, old_string: p.old_string, new_string: p.new_string, replace_all: !!p.replace_all };
-		const files = catalog.planEdit(p.domain, e, root, since(root));
+		const e: Edit = { path: p.path, old_string: p.old_string, new_string: p.new_string, replace_all: !!p.replace_all };
+		const files = catalog().planEdit(p.domain, e, root, since(root));
 		// the write is what the gate showed: a file that moved since (the same edit now gives another text) is refused
 		const run = () => {
-			const now = catalog.planEdit(p.domain, e, root);
+			const now = catalog().planEdit(p.domain, e, root);
 			if (now.length !== files.length || now.some((f, i) => f.path !== files[i].path || f.text !== files[i].text))
 				throw new Error(`${p.path} changed after the person approved the edit: nothing written; propose it again`);
-			return catalog.edit(p.domain, e, root);
+			return catalog().edit(p.domain, e, root);
 		};
 		return { tool: "catalog_edit", domain: p.domain, root, reopen: !!d.program && resolve(d.dir, p.path) === resolve(d.program), files, run };
 	}
@@ -242,10 +248,10 @@ export default function (pi: ExtensionAPI) {
 		if (!NAME.test(p.domain)) throw new Error(`domain ${JSON.stringify(p.domain)}: lowercase letters, digits, _`);
 		const from = writeRoot();
 		const into = takeRoot();
-		catalog.get(p.domain, from); // the loop's catalog has it (the SDK's error otherwise)
+		catalog().get(p.domain, from); // the loop's catalog has it (the SDK's error otherwise)
 		const o = { readmeFromRun: runDir() };
 		return { tool: "catalog_take", domain: p.domain, root: into, reopen: false,
-			files: catalog.planTake(p.domain, from, o, into, since(into)), run: () => catalog.take(p.domain, from, o, into) };
+			files: catalog().planTake(p.domain, from, o, into, since(into)), run: () => catalog().take(p.domain, from, o, into) };
 	}
 
 	const plans = new Map<string, Plan>(); // toolCallId -> the plan the person approved
@@ -262,7 +268,7 @@ export default function (pi: ExtensionAPI) {
 		let after = "";
 		if (pl.reopen) {
 			// the program and its host as the catalog's loader names them
-			const d = catalog.get(pl.domain, pl.root);
+			const d = catalog().get(pl.domain, pl.root);
 			const host = d.host && /\.py:/.test(d.host) ? join(dirname(d.program), d.host) : d.host;
 			const failed = await reopen(d.program, host);
 			after = failed
@@ -340,7 +346,7 @@ export default function (pi: ExtensionAPI) {
 			remember(pl, true);
 			let bundle: string;
 			try {
-				bundle = catalog.build(pl.domain, pl.root);
+				bundle = catalog().build(pl.domain, pl.root);
 			} catch (e) {
 				bundle = (e as Error).message;
 			}
@@ -370,7 +376,7 @@ export default function (pi: ExtensionAPI) {
 			return undefined;
 		}
 		if (!ctx.hasUI) return { block: true, reason: "no person to approve the write (no UI)" };
-		const mark = (f: catalog.Planned) =>
+		const mark = (f: Planned) =>
 			`${f.path}${f.new ? " (new)" : ""}${f.since_diff === undefined ? "" : f.since_diff ? " (changed since you refused it)" : " (as you refused it)"}`;
 		const what = pl.files.map(mark).join(", ") || "nothing changes";
 		const body = pl.files.map((f) =>
@@ -391,7 +397,7 @@ export default function (pi: ExtensionAPI) {
 		try {
 			const s = JSON.parse(readFileSync(join(runDir(), "seed.json"), "utf8"));
 			if (!s.package) return null;
-			const d = catalog.get(s.name, join(runDir(), "seed"));
+			const d = catalog().get(s.name, join(runDir(), "seed"));
 			if (resolve(d.program) !== resolve(llp)) return null;
 			return d.host && /\.py:/.test(d.host) ? join(dirname(d.program), d.host) : d.host ?? null;
 		} catch {
@@ -405,6 +411,36 @@ export default function (pi: ExtensionAPI) {
 		const r = await registerVerbs();
 		if (r.undescribed.length && ctx.hasUI)
 			ctx.ui.notify(`metis-repl: ${r.ops} verbs; ${r.undescribed.length} without a description on the wire (finding: metispy): ${r.undescribed.join(" ")}`, "warning");
+	});
+
+	// /metis-loop and /metis-seed in a pi loop.sh did not start (the installed package): the
+	// template's run is made here before pi expands it (lib/run.ts), and the REPL serves its
+	// program; loop.sh's environment (METIS_CATALOG) means the run is made already
+	let run: Run | null = null;
+	pi.on("input", async (event, ctx) => {
+		const m = /^\/(metis-loop|metis-seed)(?:\s+([\s\S]*))?$/.exec(event.text.trim());
+		if (!m) return { action: "continue" };
+		const say = (t: string, kind: "info" | "error") => (ctx.hasUI ? ctx.ui.notify(t, kind) : undefined);
+		const loop = () => (m[2]?.trim() ? { action: "transform" as const, text: loopText(m[2]) } : { action: "continue" as const });
+		if (run || process.env.METIS_CATALOG) { // this session's run, the person's catalog, or loop.sh's run
+			if (m[1] === "metis-loop") return loop();
+			say(run ? `this session's run is ${run.dir}: a seeded start begins in a new pi, in a new directory`
+				: "/metis-seed makes a run of its own: start pi without METIS_CATALOG (or use loop.sh --scratch DIR --seed)", "error");
+			return { action: "handled" };
+		}
+		try {
+			const dir = resolve(process.env.METIS_LOOP_RUN || ctx.cwd);
+			const r = m[1] === "metis-loop" ? loopRun(dir, ctx.model) : seedRun(dir, ctx.cwd, words(m[2] ?? ""), ctx.model);
+			process.env.METIS_LOOP_LLP = r.llp ?? "";
+			const err = r.llp ? await reopen(r.llp, seedHost(r.llp)) : null;
+			if (err) throw new Error(`the REPL cannot serve ${r.llp}: ${err}`);
+			run = r;
+			say(`the loop's run: ${dir} (catalog/, records/; catalog_take into ${process.env.METIS_LOOP_TAKE_INTO}); the REPL serves ${r.llp}`, "info");
+			return r.text ? { action: "transform", text: r.text } : loop();
+		} catch (e) {
+			say(`${m[1]}: ${(e as Error).message}`, "error");
+			return { action: "handled" };
+		}
 	});
 
 	pi.on("session_shutdown", () => {

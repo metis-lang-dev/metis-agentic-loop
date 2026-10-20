@@ -1,5 +1,5 @@
 // A seeded start end to end, scripted (fiction-port s-e3d0942d step 1): the loop's tools
-// called in the seeded task's order (prompts/seed-task.md) by this script instead of a
+// called in the seeded task's order (prompts/metis-seed.md) by this script instead of a
 // model, against the real processes — metispy's `metis --json` serving the seed,
 // metis-agent's domain agent, the loop SDK's catalog — into a scratch target catalog.
 // No model: a seeded start formalizes nothing, so the run costs nothing.
@@ -19,7 +19,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import repl from "../extensions/metis-repl.ts";
 import domain from "../extensions/metis-domain.ts";
-import * as catalog from "../extensions/sdk/catalog.ts";
+import { catalog } from "../extensions/lib/sdk.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PKGS = join(HERE, "..", "..");                              // the sibling checkouts
@@ -66,7 +66,7 @@ Object.assign(process.env, {
 const files = (root: string, at = ""): string[] =>
 	readdirSync(join(root, at), { withFileTypes: true }).flatMap((e) =>
 		SKIP.test(`/${at}/${e.name}/`) ? [] : e.isDirectory() ? files(root, join(at, e.name)) : [join(at, e.name)]);
-if (pkg) process.env.METIS_LOOP_LLP = catalog.get(name, join(dir, "seed")).program;
+if (pkg) process.env.METIS_LOOP_LLP = catalog().get(name, join(dir, "seed")).program;
 const seedProg = process.env.METIS_LOOP_LLP!;
 const progName = basename(seedProg);
 const log = join(dir, "seeded.md");

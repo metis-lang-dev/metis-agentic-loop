@@ -1,5 +1,5 @@
 // roots — which catalogs the loop's writes go to (the loop's own policy, from
-// loop.sh's environment; the catalog itself is the loop SDK's, ./sdk/catalog.ts).
+// loop.sh's environment; the catalog itself is the loop SDK's, its TypeScript face: lib/sdk.ts).
 //   METIS_CATALOG         the catalog the loop writes (catalog_apply): must be set
 //   METIS_LOOP_TAKE_INTO  the catalog catalog_take takes a finished domain into
 //   METIS_LOOP_RUN        the run's directory (records/, seed.json): the taken domain's README

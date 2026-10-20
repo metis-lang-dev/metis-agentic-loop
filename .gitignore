@@ -4,4 +4,5 @@ agent/sessions/
 agent/auth.json
 agent/models-store.json
 agent/settings.json
+# the former link to the loop SDK's face (setup.sh removes it)
 extensions/sdk

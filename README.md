@@ -2,6 +2,79 @@
 
 [![ci](https://github.com/metis-lang-dev/metis-agentic-loop/actions/workflows/ci.yml/badge.svg)](https://github.com/metis-lang-dev/metis-agentic-loop/actions/workflows/ci.yml)
 
+## Install
+
+The loop is a [pi](https://pi.dev) package: two extensions (the metis REPL as `repl_*` tools,
+the catalog's writes `catalog_apply`, `catalog_edit` and `catalog_take` behind your approval,
+the domain agent's `domain_*` tools), two prompt templates (`/metis-loop`, `/metis-seed`) and
+the lamp example.
+
+You need Node >= 22.19 and pi (`npm install -g @earendil-works/pi-coding-agent`; tested with
+1.3.0), and Python >= 3.10 with the python side, by name from PyPI:
+
+```sh
+pip install metispy metis-catalog metis-loop-sdk
+pi install npm:@metis-lang-dev/metis-agentic-loop@0.1.0
+# or straight from GitHub:
+pi install git:github.com/metis-lang-dev/metis-agentic-loop@v0.1.0
+```
+
+The extensions reach the python side through `METIS_LOOP_SDK_PY`, a python with the three
+installed (default: `python3` on PATH, so start pi with that venv active or set it). The model is
+pi's: an OpenRouter model with `OPENROUTER_API_KEY` from the environment (pi's built-in provider),
+or Ollama (`ollama/<model>`; `ollama/Modelfile` imports our Gemma 4 E4B).
+
+**The lamp, installed.** In a new directory (the run is made there):
+
+```sh
+mkdir lamp-run && cd lamp-run
+pi --model openrouter/deepseek/deepseek-v4-pro:off
+```
+
+then type `/metis-loop` followed by the lamp: "Goal: formalize a new domain, `lamp`, from my
+description below; apply it to the catalog; draft its intents; then exercise it, and if the lamp
+surprises you, explain it with an extension, apply that, and exercise again. The lamp:" and the
+text of `example/lamp/prose.md` (in the installed package). "The demo" below says what you
+approve and what to look for.
+
+**What a template makes.** `/metis-loop`, the first time in a pi session, makes the run in the
+directory pi runs in (`METIS_LOOP_RUN` names another), as `loop.sh --scratch DIR` does here:
+- `catalog/`: the loop's scratch catalog (the catalog's tools, plant beside the new domain, the
+  lamp's world), where `catalog_apply` and `catalog_edit` write;
+- `into/`: what `catalog_take` takes a finished domain into, unless `METIS_LOOP_TAKE_INTO` names
+  your catalog;
+- `records/`, and `metis.toml`: the kernel's formalize on pi's model's provider (OpenRouter, or
+  Ollama; `FORMALIZE_MODEL` or `METIS_CONFIG` as in the hosted mode).
+
+`/metis-seed <path.llp|package dir> [name] [episodes]` is a seeded start ("A seeded start"
+below), in a new directory. With `METIS_CATALOG` set, `/metis-loop` works on that catalog and
+makes nothing. The Ceptre seeds (`metis-catalog/domains/ceptre/`) are a checkout's only: the
+metis-catalog wheel does not carry them (their own license).
+
+**What the tools run and write.** `metis --json` (metispy's REPL: the one beside
+`METIS_LOOP_SDK_PY`, else on PATH, or `METIS_LOOP_METIS`), from the session's start; the loop
+SDK's catalog CLI (`python -m metis_loop_sdk.catalog`), whose TypeScript face the extensions load
+from the SDK's wheel; and the domain agent (`python -m metis_agent.domain_agent`), which is
+metis-agent's and not on PyPI: `METIS_AGENT=<a metis-agent checkout>` (its `py/.venv`), else
+`domain_open` refuses and says so. They write only inside the catalog roots (the run's
+`catalog/`, the take target), each write behind your approval with its diff, never a commit.
+Nothing of your pi is replaced: no system prompt, no setting; the loop's instructions are the
+template's text.
+
+```sh
+pi update --extensions                                   # a newer release (a pinned @version stays)
+pi remove npm:@metis-lang-dev/metis-agentic-loop          # or the git: source as installed
+```
+
+**Releasing.** `package.json`'s version = the tag `vX.Y.Z` = the GitHub Release = npm's
+version: bump it (`npm install --package-lock-only`), commit, `gh release create vX.Y.Z`; the
+tag's push runs `.github/workflows/publish.yml` (the tag checked against the version, the
+tarball's files against `test/pack-files.txt`, `npm publish --provenance` by trusted publishing,
+no token). `workflow_dispatch` is its dry run. CI's `installed` job (`test/installed.sh`) installs
+the tarball into a scratch pi on every push.
+
+## The hosted mode (this checkout)
+
 pi hosts the agentic loop. The two metis extensions give it its tools. Everything
 pi needs is pinned and installed here, not globally.
 
@@ -28,8 +101,9 @@ pinned by tag in CI): the model adapters, and the catalog. The extensions read
 a domain's intents and make the writes (`catalog_apply`, `catalog_edit`, `catalog_take`) through the
 SDK's TypeScript face, `metis_loop_sdk/ts/catalog.ts`: one function per verb of its
 catalog CLI (`python -m metis_loop_sdk.catalog … --json`), shipped in the SDK's wheel.
-`setup.sh` links it as `extensions/sdk` (gitignored; `pi.sh` refreshes the link at each
-start), so the py SDK and its TypeScript face are one install and one tag. This
+The extensions load it from there at their first catalog call (`extensions/lib/sdk.ts`: the
+directory `catalog ts --json` names), hosted or installed alike, with no copy and no link here,
+so the py SDK and its TypeScript face are one install and one tag. This
 repository keeps only pi's glue: the tools, the gate, `loop.sh`, a thin `take.sh`. `METIS_AGENT` points elsewhere for
 metis-agent; `METIS_LOOP_SDK_PY`, `METIS_LOOP_METIS` and `METIS_LOOP_AGENT_PY` for the pythons.
 
@@ -38,21 +112,23 @@ metis-agent; `METIS_LOOP_SDK_PY`, `METIS_LOOP_METIS` and `METIS_LOOP_AGENT_PY` f
 | Node | v22.23.3 (2026-09-23; pi needs >= 22.19) | `node/` (gitignored) | `setup.sh`: nodejs.org tarball, SHA-256 checked against SHASUMS256.txt |
 | pi | `@earendil-works/pi-coding-agent` 1.3.0 | `node_modules/` (gitignored) | `setup.sh`: `npm ci --ignore-scripts` from `package-lock.json` (integrity hashes) |
 | Ollama | 0.24.0 (the host's service) | — | its built-in Gemma 4 renderer and parser |
-| the loop SDK | metis-loop `sdk/` (`metis_loop_sdk.models`, `.catalog`, `ts/catalog.ts`) | the packages venv (`METIS_LOOP_SDK_PY`, default `../.venv/bin/python`); `extensions/sdk` links its TypeScript face | `pip install -e ../metis-loop/sdk`, then `./setup.sh --link`: the kernel's formalize through its Ollama or OpenAI-compatible command face (thinking off), the GPU probe, and the catalog (a domain's intents, `catalog_apply`, `catalog_take`, the README of a run, the bundle) |
+| the loop SDK | metis-loop `sdk/` (`metis_loop_sdk.models`, `.catalog`, `ts/catalog.ts`) | the packages venv (`METIS_LOOP_SDK_PY`, default `../.venv/bin/python`), where the extensions load its TypeScript face from | `pip install -e ../metis-loop/sdk` (`./setup.sh --check` says where the face is): the kernel's formalize through its Ollama or OpenAI-compatible command face (thinking off), the GPU probe, and the catalog (a domain's intents, `catalog_apply`, `catalog_take`, the README of a run, the bundle) |
 | OpenRouter (trial) | pi's built-in provider | `MODEL=openrouter/<id>[:thinking]` | `OPENROUTER_API_KEY` from the environment only, never a file here; `agent/models.json` caps the trial's models at 2048 output tokens and routes them `data_collection: deny`; `example/openrouter_key.py` prints the key's spend (never the key). The kernel's formalize follows the driver (`FORMALIZE_MODEL=openrouter/<id>`, through the loop SDK's `openai-command`: reasoning off, 2048 tokens, `data_collection: deny`, each call and its cost in `records/formalize-calls.jsonl`); `FORMALIZE_MODEL=metis-gemma4-e4b` keeps it on Ollama |
 | model | our Gemma 4 E4B Q5_K_M GGUF (metis-agent `go/models/gemma4/`) | Ollama: `metis-gemma4-e4b`, `metis-gemma4-e4b-cpu` | `ollama create … -f ollama/Modelfile` (`Modelfile.cpu`: `num_gpu 0`) |
 
 | file | what |
 |---|---|
-| `setup.sh` | install / `--check` / `--link` (`extensions/sdk`: the loop SDK's TypeScript face, as installed) |
+| `setup.sh` | install / `--check` (node, pi, and where the loop SDK's TypeScript face is) |
 | `pi.sh` | pi with this directory's config (`agent/models.json`: Ollama only, no keys, no OAuth), offline, no built-in tools, context files, skills, prompt templates or MCP, only the two extensions; the TUI in regular mode (the gate's diff stays in the terminal's scrollback, its Yes/No below it) |
 | `take.sh` | `take.sh DIR [NAME]`: `catalog_take` from the shell, after the session: a run's domain (default lamp) into the catalog, three calls of the loop SDK's CLI (`take --readme-from-run DIR`, its dry run, `build`); never a commit |
 | `loop.sh` | the loop: `--scratch DIR` (a scratch catalog with the example's world) or `METIS_CATALOG=…`; `--scratch DIR --seed PATH.llp|PKG_DIR [--name NAME] [--episodes N]`: a seeded start ("A seeded start" below); `MODEL=ollama/metis-gemma4-e4b[-cpu]`; pi's args (e.g. `--mode rpc`) |
 | `extensions/metis-repl.ts` | the REPL (`metis --json`): a tool per wire verb, `catalog_apply` (what=program, served, extension, intents, readme), `catalog_edit` (one exact edit of a domain's file, comments and all), `catalog_take` (a finished domain into `METIS_LOOP_TAKE_INTO`) and their gate, which shows a refused file's next proposal as its diff from the refused one; `lib/roots.ts`: which catalog each write goes to |
 | `extensions/metis-domain.ts` | the domain agent: `domain_open`, `domain_clock`, the REPL API's tools, the intents; for a world without intents `domain_ports`, `domain_world` and `domain_episodes` (seeded episodes measured against the world: outcomes, the program's likelihood of what it did, surprises, mismatched atoms) |
-| `prompts/loop-system.md` | the loop's system prompt (replaces pi's coding-assistant prompt); `seed-task.md`, a seeded start's first message |
+| `prompts/metis-loop.md` | the loop's instructions: the package's `/metis-loop` template, and here (its text without the front matter) the system prompt `loop.sh` gives pi in place of its coding-assistant prompt; `metis-seed.md`, a seeded start's task: `/metis-seed`, and here the first message `loop.sh --seed` fills in |
+| `package.json` | the pi package: `pi.extensions`, `pi.prompts`, `files` (the tarball: `test/pack-files.txt`), pi's packages as peers, the hosted mode's pin as a devDependency |
+| `extensions/lib/` | `sdk.ts` (the loop SDK's face, loaded from where it is installed), `run.ts` (a template's run in a pi `loop.sh` did not start), `roots.ts`, `jsonl.ts` |
 | `example/` | the worked example: the lamp's world (`lamp/lamp_host.py`), the person's prose, `person.py` (the person over RPC); `seeded.ts`, a seeded start scripted end to end (no model); `seedperson.py`, a seeded run over RPC with a human at every gate, through files (`DIR/ask/<n>.md` → `<n>.ans`: y, or n and a steer), with a cost cap |
-| `test/` | `extensions.test.ts`, the extensions against stand-ins (no model): `node/bin/node --experimental-strip-types --test test/extensions.test.ts` |
+| `test/` | `extensions.test.ts`, the extensions against stand-ins (no model): `node/bin/node --experimental-strip-types --test test/extensions.test.ts` (`TEST_PACKAGE_DIR`: an installed copy's); `installed.sh [PI]`, the package as a person installs it (CI's `installed` job) |
 
 ## The demo
 
@@ -87,7 +163,7 @@ The kernel's formalize was about 0.001 of each. `demo.sh` prints the key's spend
 
    **Read the extension's rule before you approve: its premise must name a cause.** The right one is `lit * worn -o dark`. A bare `lit -o dark` makes every lit lamp go dark; refuse it and say why. The gate checks that the extension is well formed, not that it explains: in one of the three runs it did not (run 2's `decay_lit : lit -o dark`).
 
-   The revise step (`prompts/loop-system.md` step 6) asks for an extension whose atoms the domain already declares. That holds here: the prose declares `worn` up front. A cause the domain does not declare would need a `pred` of the extension's own; the prompt does not ask for one yet.
+   The revise step (`prompts/metis-loop.md` step 6) asks for an extension whose atoms the domain already declares. That holds here: the prose declares `worn` up front. A cause the domain does not declare would need a `pred` of the extension's own; the prompt does not ask for one yet.
 4. **Exercise.** If the model only reads the lamp, steer: "switch it on with intent_on, then domain_clock 8 beats". The surprise comes at beat 6: the bulb wears out (`do +worn` at beat 4) and the lamp goes dark.
 5. **The re-exercise** opens the lamp again. The extension's rule fires (`event …: …`) and no surprise comes. The loop is through.
 
@@ -104,7 +180,7 @@ The run's catalog is a scratch one (`tools/`, the plant beside the lamp), so cop
 
 `loop.sh --scratch DIR --seed PATH.llp [--name NAME]` starts from an existing program instead of prose: the six fiction programs (once `metis-catalog/domains/fiction/*.llp`) became catalog domains this way (fiction-port step 2: `domains/love_triangle/`, `tragedy/`, `herstory/`, `talespin/`, `three_pigs/`, `three_pigs_connectives/`; under `domains/ceptre/` since, the Ceptre ports' own license).
 - The REPL serves a copy of the seed (`DIR/seed/NAME.llp`); `DIR/seed.json` records it. NAME defaults to the file's stem with `-` as `_` (`3lp` needs `--name`). A run is seeded once: another seed needs a new DIR. `--episodes N` (1–50, default 20) is the n of the task's `domain_episodes` for an RDDL world: it is in the task from its first message, so the model never runs another n before the person's (rddl-watch s-cfe94dca).
-- pi's first message is the seeded task (`prompts/seed-task.md`, also `DIR/seed/task.md`; over `--mode rpc` the client sends it):
+- pi's first message is the seeded task (`prompts/metis-seed.md` filled in, also `DIR/seed/task.md`; over `--mode rpc` the client sends it):
   1. read the program (`repl_show base`);
   2. `catalog_apply what=served display=… line=…`: the seed, as it is, becomes the domain's program, its manifest with a display and a line. The gate shows it, and its rules are not changed: never formalize or revise, which reprint the program without its comments. A change the person asks for (a comment, a header line, one rule) is `catalog_edit` with the exact old and new text, its diff at the gate. Until the seed is applied, a seeded run refuses what=program and what=extension for a domain its catalog does not have, so a change to the seed always reaches the gate as a diff against it, never as a new file;
   3. `catalog_apply what=intents`: the person's verbs from its `cmd_*` atoms. A world without commands gets no intent.yaml (the agents open a domain without intents with no verbs, metis-agent a0a19e6), and nothing reaches the gate; `METIS_CATALOG_INTENTLESS=0` (the SDK's switch) gives one that knows only UNKNOWN for older agents;

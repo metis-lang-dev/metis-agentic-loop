@@ -1,9 +1,39 @@
 {
-  "name": "metis-agentic-loop-host",
-  "private": true,
+  "name": "@metis-lang-dev/metis-agentic-loop",
+  "version": "0.1.0",
+  "description": "The metis agentic loop as a pi package: the metis REPL and domain-agent tools, the catalog's gated writes, the /metis-loop and /metis-seed templates, the lamp example (docs/LOOP-AGENT.md)",
+  "type": "module",
   "license": "Apache-2.0",
-  "description": "pi, pinned, as the agentic loop's host (docs/LOOP-AGENT.md); the extensions are in extensions/",
-  "dependencies": {
+  "keywords": ["pi-package", "metis"],
+  "homepage": "https://metis-lang-dev.github.io",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/metis-lang-dev/metis-agentic-loop.git"
+  },
+  "bugs": "https://github.com/metis-lang-dev/metis-agentic-loop/issues",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "files": [
+    "extensions/*.ts",
+    "extensions/lib/*.ts",
+    "prompts/*.md",
+    "example/lamp/",
+    "docs/LOOP-AGENT.md",
+    "ollama/",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "pi": {
+    "extensions": ["./extensions/metis-repl.ts", "./extensions/metis-domain.ts"],
+    "prompts": ["./prompts/metis-loop.md", "./prompts/metis-seed.md"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
     "@earendil-works/pi-coding-agent": "1.3.0"
   }
 }
