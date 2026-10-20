@@ -833,6 +833,14 @@ function installedEnv(): () => void {
 	};
 }
 const said: string[] = [];
+// a template's run starts from the loop SDK's own catalog (no METIS_CATALOG): metis-loop-sdk >= 0.1.7
+// finds the installed metis-catalog's, an older one only a sibling checkout of its own
+const sdkRoot = (() => {
+	const { METIS_CATALOG: _, ...env } = process.env;
+	const r = spawnSync(process.env.TEST_SDK_PY ?? join(PKGS, ".venv", "bin", "python"), ["-m", "metis_loop_sdk.catalog", "root", "--json"], { encoding: "utf8", env });
+	return r.status === 0;
+})();
+const noRoot = !sdkRoot && "the loop SDK finds no catalog without METIS_CATALOG (metis-loop-sdk < 0.1.7)";
 const pkgCtx = (cwd: string) => ({ hasUI: true, cwd, model: { provider: "ollama", id: "metis-gemma4-e4b" }, ui: { confirm: async () => true, notify: (t: string) => said.push(t) } });
 const stubArgv = () => readFileSync(process.env.STUB_LOG!, "utf8").trim().split("\n").map((l) => JSON.parse(l)).filter((l) => l.argv).map((l) => l.argv);
 
@@ -848,7 +856,7 @@ test("lib/sdk: the face is the SDK's own (no link, no copy here); a python witho
 	assert.equal(PIP, "pip install metispy metis-catalog metis-loop-sdk");
 });
 
-test("metis-repl: /metis-loop in a pi loop.sh did not start makes the lamp's run in its directory and serves plant; again, it continues", async () => {
+test("metis-repl: /metis-loop in a pi loop.sh did not start makes the lamp's run in its directory and serves plant; again, it continues", { skip: noRoot }, async () => {
 	const restore = installedEnv();
 	const dir = mkdtempSync(join(tmpdir(), "loop-installed-"));
 	const p = fakePi();
@@ -878,14 +886,16 @@ test("metis-repl: /metis-loop in a pi loop.sh did not start makes the lamp's run
 	}
 });
 
-test("metis-repl: /metis-seed PATH makes a seeded run and fills in the template's name and episodes; a bad one, or METIS_CATALOG set, is refused", async () => {
+test("metis-repl: /metis-seed PATH makes a seeded run and fills in the template's name and episodes; a bad one, or METIS_CATALOG set, is refused", { skip: noRoot }, async () => {
 	const restore = installedEnv();
+	const open: ReturnType<typeof fakePi>[] = []; // every session's REPL closed, a failure or not
+	const fake = () => { const f = fakePi(); open.push(f); return f; };
 	const src = mkdtempSync(join(tmpdir(), "loop-seedsrc-"));
 	writeFileSync(join(src, "my-world.llp"), "% a world\ncatalog my_world 1.\n");
 	const dir = mkdtempSync(join(tmpdir(), "loop-installed-seed-"));
 	process.env.METIS_LOOP_RUN = dir; // the run's directory: $METIS_LOOP_RUN, else pi's cwd (src, where the path is read)
 	try {
-		const q = fakePi();
+		const q = fake();
 		repl(q.api);
 		await q.emit("session_start", {}, pkgCtx(src));
 		assert.deepEqual(await q.emit("input", { text: "/metis-seed my-world.llp" }, pkgCtx(src)),
@@ -897,20 +907,21 @@ test("metis-repl: /metis-seed PATH makes a seeded run and fills in the template'
 		for (const [text, why] of [["/metis-seed my-world.llp World", /lowercase letters/], ["/metis-seed my-world.llp w 0", /episodes 0: 1-50/], ["/metis-seed nothing.llp", /no such file/]] as const) {
 			for (const k of ["METIS_CATALOG", "METIS_LOOP_TAKE_INTO", "METIS_CONFIG"]) delete process.env[k];
 			process.env.METIS_LOOP_RUN = mkdtempSync(join(tmpdir(), "loop-installed-bad-"));
-			const r = fakePi();
+			const r = fake();
 			repl(r.api);
 			said.length = 0;
 			assert.deepEqual(await r.emit("input", { text }, pkgCtx(src)), { action: "handled" });
 			assert.match(said.join("\n"), why);
 		}
 		process.env.METIS_CATALOG = dir;
-		const s = fakePi();
+		const s = fake();
 		repl(s.api);
 		said.length = 0;
 		assert.deepEqual(await s.emit("input", { text: "/metis-seed my-world.llp" }, pkgCtx(src)), { action: "handled" });
 		assert.match(said.join("\n"), /makes a run of its own/);
 		assert.deepEqual(await s.emit("input", { text: "/metis-loop" }, pkgCtx(src)), { action: "continue" }); // the person's catalog
 	} finally {
+		for (const f of open) await f.emit("session_shutdown", {}, {});
 		restore();
 	}
 });

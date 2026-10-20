@@ -135,5 +135,5 @@ jobs:
       - name: installed.sh
         working-directory: metis-agentic-loop
         run: |
-          export METIS_LOOP_SDK_PY="$(command -v python)" REAL_METIS="$(command -v metis)" TEST_SDK_PY="$(command -v python)"
+          export METIS_LOOP_SDK_PY="$(command -v python)" REAL_METIS="$(command -v metis)" TEST_SDK_PY="$(command -v python)" TEST_AGENT_PY="$(command -v python)"
           bash test/installed.sh pi
