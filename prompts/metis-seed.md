@@ -16,4 +16,4 @@ The REPL serves an existing program, the seed: `$1`. Make it the catalog domain 
    The person approves it. To fix what the person points out: while the README is not yet written (the person refused it), send what=readme again with only that fix, and the gate shows what changed since; once it is written, use `catalog_edit` with path=README.md and the exact old and new text.
 6. When the person asks: `catalog_take` with domain=$2. It brings the domain into the person's catalog, with its README.
 
-Say briefly what you did after each step.
+You have no shell and no file tools: every step is one of the loop's tools. Say briefly what you did after each step.

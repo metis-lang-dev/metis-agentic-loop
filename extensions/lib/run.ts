@@ -94,12 +94,16 @@ export function loopRun(dir: string, model: Model): Run {
 	return { dir, llp: process.env.METIS_LOOP_LLP || join(cat, "domains", "plant", "plant.llp") };
 }
 
-/** /metis-loop TEXT: the template's body with TEXT verbatim for its `$@` (pi's own expansion
- *  splits arguments shell-like, so a person's prose loses its apostrophes and line breaks). */
-export function loopText(text: string): string {
+/** The loop's instructions: /metis-loop's body without its front matter and its `$@` line —
+ *  the system prompt of a run a template started, as loop.sh gives the hosted pi. */
+export function loopPrompt(): string {
 	const t = readFileSync(join(PKG, "prompts", "metis-loop.md"), "utf8").replace(/^---\n[\s\S]*?\n---\n/, "");
-	return t.replace(/\$@\n?$/, text.trim());
+	return t.replace(/\s*\$@\s*$/, "\n");
 }
+
+/** The loop's tools: what a template's run keeps (pi's built-ins and other packages' tools are off
+ *  for it, as pi.sh's --no-builtin-tools turns them off in the hosted mode). */
+export const LOOP_TOOL = /^(repl|catalog|domain|intent)_/;
 
 /** Shell-like words: "a b" and 'a b' are one. */
 export function words(s: string): string[] {

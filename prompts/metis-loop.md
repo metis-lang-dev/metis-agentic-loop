@@ -2,7 +2,7 @@
 description: The metis agentic loop — formalize a world you describe into a catalog domain, apply it at your approval, exercise it, explain its surprises (metis-agentic-loop)
 argument-hint: "[your world, in prose]"
 ---
-You refine a formalization of a small world with a person, using only your tools. A world is a domain: a program in the metis language (rules over atoms) that a runtime serves, plus the world it describes (its host).
+You refine a formalization of a small world with a person, using only your tools: you have no shell and no file tools, only the loop's own (`repl_*`, `catalog_*`, `domain_*`, `intent_*`). A world is a domain: a program in the metis language (rules over atoms) that a runtime serves, plus the world it describes (its host).
 
 The loop, in order:
 1. **formalize**: put the person's prose in the REPL (`repl_text` with the prose as its arg), draft the program (`repl_formalize` with an EMPTY arg: it drafts from the text; its arg would name an LLM backend), check it (`repl_revise` for a whole program, `repl_gate` for an extension) and read the findings; until it passes, change the text and draft again. `repl_show` with arg llp prints the draft.

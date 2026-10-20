@@ -27,16 +27,20 @@ function fakePi() {
 	const tools = new Map<string, any>();
 	const on = new Map<string, ((e: any, c: any) => any)[]>();
 	const messages: { msg: any; opts: any }[] = [];
+	let active = ["read", "bash", "edit", "write"]; // pi's built-ins; a tool registered joins them, as in pi
 	return {
 		tools,
 		messages,
+		active: () => active,
 		emit: async (ev: string, e: any, c: any) => {
 			let r;
 			for (const h of on.get(ev) ?? []) r = await h(e, c);
 			return r;
 		},
 		api: {
-			registerTool: (t: any) => tools.set(t.name, t),
+			registerTool: (t: any) => { tools.set(t.name, t); if (!active.includes(t.name)) active = [...active, t.name]; },
+			getActiveTools: () => [...active],
+			setActiveTools: (names: string[]) => { active = [...names]; },
 			registerCommand: () => {},
 			on: (ev: string, h: any) => on.set(ev, [...(on.get(ev) ?? []), h]),
 			sendMessage: (msg: any, opts: any) => messages.push({ msg, opts }),
@@ -863,6 +867,8 @@ test("metis-repl: /metis-loop in a pi loop.sh did not start makes the lamp's run
 	repl(p.api);
 	await p.emit("session_start", {}, pkgCtx(dir));
 	try {
+		assert.equal(await p.emit("before_agent_start", { type: "before_agent_start", messageType: "user", prompt: "hi" }, pkgCtx(dir)), undefined);
+		assert.ok(p.active().includes("bash"));                                          // no template yet: pi as it is
 		assert.deepEqual(await p.emit("input", { text: "/metis-loop" }, pkgCtx(dir)), { action: "continue" });
 		for (const f of ["catalog/domains/plant/plant.llp", "catalog/domains/lamp/lamp_host.py", "catalog/tools/intents.py", "into/domains", "into/tools/intents.py", "records"])
 			assert.ok(existsSync(join(dir, f)), f);
@@ -874,10 +880,13 @@ test("metis-repl: /metis-loop in a pi loop.sh did not start makes the lamp's run
 		assert.equal(stubArgv().at(-1).at(-1), join(dir, "catalog", "domains", "plant", "plant.llp")); // the REPL reopened on plant
 		assert.ok(said.some((t) => t.includes(dir)));
 		const prose = "The lamp's bulb wears out.\nIt says `done(on)`.";                 // verbatim: pi's own expansion splits it shell-like
-		const t = await p.emit("input", { text: `/metis-loop ${prose}` }, pkgCtx(dir));
-		assert.equal(t.action, "transform");
-		assert.ok(t.text.startsWith("You refine a formalization") && t.text.endsWith(`what you will do next.\n\n${prose}`), t.text.slice(-200));
-		assert.doesNotMatch(t.text, /^---|description:|\$@/m);
+		assert.deepEqual(await p.emit("input", { text: `/metis-loop ${prose}` }, pkgCtx(dir)), { action: "transform", text: prose });
+		// the loop's session: each run has the loop's prompt (the template's body) and the loop's tools only
+		const b = await p.emit("before_agent_start", { type: "before_agent_start", messageType: "user", prompt: prose }, pkgCtx(dir));
+		assert.ok(b.systemPrompt.startsWith("You refine a formalization") && /you have no shell/.test(b.systemPrompt), b.systemPrompt.slice(0, 200));
+		assert.ok(b.systemPrompt.trimEnd().endsWith("what you will do next."));
+		assert.doesNotMatch(b.systemPrompt, /^---|description:|\$@/m);
+		assert.ok(p.active().length > 0 && p.active().every((t: string) => /^(repl|catalog|domain|intent)_/.test(t)), p.active().join(" "));
 		assert.deepEqual(await p.emit("input", { text: "/metis-seed x.llp" }, pkgCtx(dir)), { action: "handled" }); // one run per session
 		assert.deepEqual(await p.emit("input", { text: "hello" }, pkgCtx(dir)), { action: "continue" });
 	} finally {

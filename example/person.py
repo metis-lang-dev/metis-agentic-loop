@@ -8,7 +8,10 @@ the person's turn), and stops the run (abort) at the end or at the budget.
 
     example/person.py DIR [--model ollama/metis-gemma4-e4b] [--minutes 60]
         [--deny-first]       refuse the first apply (the gate holds: the model must ask)
-        [--max-usd X]        abort once the model's cost (pi's usage, the catalog's prices) passes X
+        [--max-usd X]        abort once the run's cost passes X: by the OpenRouter key's usage (polled after
+                             each request; pi's own count ran 4-5x under the bill, pi-release s-8e13f6a8),
+                             else pi's usage for a model not on OpenRouter
+        [--max-requests N]   abort after N model requests
         [--pi CMD]           the person's own pi with the package installed (pi-release s-8e13f6a8),
                              not loop.sh: CMD --mode rpc --model M in DIR, the first message
                              /metis-loop with the goal and the prose (the template's run is DIR)
@@ -30,6 +33,7 @@ import re
 import subprocess
 import sys
 import time
+import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -64,6 +68,19 @@ TAKE = "(the person) The lamp is right now. Take the lamp into my catalog (catal
 FAKE_CALL = re.compile(r"(?:response|call):\w+\{|<\|tool_response>|\{\s*\"name\"\s*:\s*\"\w+\"\s*,\s*\"(?:arguments|parameters)\"")
 
 
+def key_usage():
+    """The OpenRouter key's usage in USD (example/openrouter_key.py's number), or None."""
+    key = os.environ.get("OPENROUTER_API_KEY")
+    if not key:
+        return None
+    req = urllib.request.Request("https://openrouter.ai/api/v1/key", headers={"authorization": "Bearer " + key})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return float((json.loads(r.read()).get("data") or {}).get("usage"))
+    except (OSError, ValueError, TypeError):
+        return None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("dir", type=Path)
@@ -72,6 +89,7 @@ def main():
     ap.add_argument("--nudges", type=int, default=8)
     ap.add_argument("--deny-first", action="store_true")
     ap.add_argument("--max-usd", type=float, default=0)
+    ap.add_argument("--max-requests", type=int, default=0)
     ap.add_argument("--pi", default="")
     ap.add_argument("--take", action="store_true")
     a = ap.parse_args()
@@ -84,6 +102,7 @@ def main():
                             stdout=subprocess.PIPE, stderr=open(d / "pi.stderr", "w"), env=env)
     ev = open(d / "events.jsonl", "w")
     tr = open(d / "transcript.md", "w")
+    key0 = key_usage() if a.model.startswith("openrouter/") else None   # the guard's baseline: the key's own bill
     t0 = time.monotonic()
     stages, opens, turns, n_steer, nudges, denied = {}, 0, 0, 0, 0, 0
     calls = {}
@@ -146,8 +165,15 @@ def main():
                     fails["fake_calls_in_text"] += k
                     fails["fake_call_messages"] += k > 0
                     say(f"**model** ({el:.0f} s): {c['text'].strip()}\n")
-            if a.max_usd and usage["usd"] > a.max_usd:
-                done_reason = f"the cost passed {a.max_usd} USD"
+            spent = usage["usd"]
+            if key0 is not None:
+                k = key_usage()
+                spent = usage["key_usd"] = round(k - key0, 6) if k is not None else max(usage.get("key_usd", 0), usage["usd"])
+            if a.max_usd and spent > a.max_usd:
+                done_reason = f"the cost passed {a.max_usd} USD ({'the key' if key0 is not None else 'pi'}: {spent:.4f})"
+                break
+            if a.max_requests and usage["requests"] >= a.max_requests:
+                done_reason = f"{a.max_requests} model requests"
                 break
             if rec["message"].get("stopReason") == "error" or rec["message"].get("errorMessage"):
                 say(f"_model error: {rec['message'].get('errorMessage')}_\n")

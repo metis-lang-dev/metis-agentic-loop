@@ -58,8 +58,12 @@ from the SDK's wheel; and the domain agent (`python -m metis_agent.domain_agent`
 metis-agent's and not on PyPI: `METIS_AGENT=<a metis-agent checkout>` (its `py/.venv`), else
 `domain_open` refuses and says so. They write only inside the catalog roots (the run's
 `catalog/`, the take target), each write behind your approval with its diff, never a commit.
-Nothing of your pi is replaced: no system prompt, no setting; the loop's instructions are the
-template's text.
+From the template on, that pi session is the loop's, as the hosted mode's pi is: each of its runs
+has the loop's instructions as its system prompt (the template's text) and the loop's tools
+only (`repl_*`, `catalog_*`, `domain_*`, `intent_*`; no shell, no file tools, no other
+package's). A session that never types a template is left as pi has it, and nothing of your
+pi's settings changes. The scripted persons (`example/person.py`, `seedperson.py`) are the
+hosted mode's drivers (they start `loop.sh`), so the package does not carry them.
 
 ```sh
 pi update --extensions                                   # a newer release (a pinned @version stays)

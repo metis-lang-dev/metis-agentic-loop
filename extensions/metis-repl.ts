@@ -25,7 +25,7 @@ import { Type } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { cap, JsonlChild, type Line } from "./lib/jsonl.ts";
 import { runDir, takeRoot, writeRoot } from "./lib/roots.ts";
-import { loopRun, loopText, type Run, seedRun, words } from "./lib/run.ts";
+import { LOOP_TOOL, loopPrompt, loopRun, type Run, seedRun, words } from "./lib/run.ts";
 import { catalog, type Applied, type Edit, type Planned, type Write } from "./lib/sdk.ts";
 
 const NO_WORDS = "(the REPL's wire declares no description for this verb — finding: metispy)";
@@ -415,13 +415,21 @@ export default function (pi: ExtensionAPI) {
 
 	// /metis-loop and /metis-seed in a pi loop.sh did not start (the installed package): the
 	// template's run is made here before pi expands it (lib/run.ts), and the REPL serves its
-	// program; loop.sh's environment (METIS_CATALOG) means the run is made already
+	// program; loop.sh's environment (METIS_CATALOG) means the run is made already. From the
+	// template on, the session is the loop's: each run gets the loop's prompt and tools only
+	// (before_agent_start below); a session without a template is left as pi has it.
 	let run: Run | null = null;
+	let loopSession = false;
 	pi.on("input", async (event, ctx) => {
 		const m = /^\/(metis-loop|metis-seed)(?:\s+([\s\S]*))?$/.exec(event.text.trim());
 		if (!m) return { action: "continue" };
 		const say = (t: string, kind: "info" | "error") => (ctx.hasUI ? ctx.ui.notify(t, kind) : undefined);
-		const loop = () => (m[2]?.trim() ? { action: "transform" as const, text: loopText(m[2]) } : { action: "continue" as const });
+		// /metis-loop TEXT: TEXT as the person's message, verbatim (the instructions are the run's system
+		// prompt; pi's own expansion splits arguments shell-like: prose loses its apostrophes, line breaks)
+		const loop = () => {
+			loopSession = true;
+			return m[2]?.trim() ? { action: "transform" as const, text: m[2].trim() } : { action: "continue" as const };
+		};
 		if (run || process.env.METIS_CATALOG) { // this session's run, the person's catalog, or loop.sh's run
 			if (m[1] === "metis-loop") return loop();
 			say(run ? `this session's run is ${run.dir}: a seeded start begins in a new pi, in a new directory`
@@ -436,11 +444,22 @@ export default function (pi: ExtensionAPI) {
 			if (err) throw new Error(`the REPL cannot serve ${r.llp}: ${err}`);
 			run = r;
 			say(`the loop's run: ${dir} (catalog/, records/; catalog_take into ${process.env.METIS_LOOP_TAKE_INTO}); the REPL serves ${r.llp}`, "info");
-			return r.text ? { action: "transform", text: r.text } : loop();
+			if (!r.text) return loop();
+			loopSession = true;
+			return { action: "transform", text: r.text };
 		} catch (e) {
 			say(`${m[1]}: ${(e as Error).message}`, "error");
 			return { action: "handled" };
 		}
+	});
+
+	// a run of the loop's session: the loop's tools only and the loop's prompt, as the hosted pi.sh
+	// runs (--no-builtin-tools, loop.sh's --system-prompt); the tools a domain_open registers later
+	// join the live loadout as they do there
+	pi.on("before_agent_start", async () => {
+		if (!loopSession) return undefined;
+		pi.setActiveTools(pi.getActiveTools().filter((t) => LOOP_TOOL.test(t)));
+		return { systemPrompt: loopPrompt() };
 	});
 
 	pi.on("session_shutdown", () => {
