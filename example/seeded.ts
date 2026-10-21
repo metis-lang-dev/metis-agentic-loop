@@ -1,7 +1,7 @@
 // A seeded start end to end, scripted (fiction-port s-e3d0942d step 1): the loop's tools
 // called in the seeded task's order (prompts/seed-task.md) by this script instead of a
 // model, against the real processes — metispy's `metis --json` serving the seed,
-// metis-agent's domain agent, the loop SDK's catalog — into a scratch target catalog.
+// metis-agent's domain agent, the loop SDK's catalog — and taken into a second catalog.
 // No model: a seeded start formalizes nothing, so the run costs nothing.
 //
 //   node/bin/node --experimental-strip-types example/seeded.ts SEED.llp|PKG_DIR DIR [NAME]
@@ -10,9 +10,10 @@
 // loop.sh --seed PKG_DIR makes it: the package whole, its program, included files and host;
 // a world with a host of its own is also measured (domain_ports, domain_episodes).
 //
-// DIR gets the run as loop.sh --scratch DIR --seed SEED makes it (catalog/, seed/,
-// seed.json, records/), the target catalog DIR/into (tools/ and an empty domains/),
-// seeded.md (the calls and their answers) and seeded.json (what held). Exit 1 when any
+// DIR is the catalog, made empty, and the script runs in it, as `cd DIR && loop.sh --seed SEED`
+// (cwd-root s-ddac2cbf): the seed copied into DIR/.metis/seed/ with DIR/.metis/seed.json, the
+// records in DIR/.metis/records/; the target catalog is DIR.into beside it (empty); DIR/.metis/
+// also gets seeded.md (the calls and their answers) and seeded.json (what held). Exit 1 when any
 // check fails.
 import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
@@ -22,7 +23,7 @@ import domain from "../extensions/metis-domain.ts";
 import * as catalog from "../extensions/sdk/catalog.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const PKGS = join(HERE, "..", "..");                              // the sibling checkouts
+const PKGS = join(HERE, "..", "..");                              // the workspace (its .venv, metis-agent: defaults)
 const AGENT = process.env.METIS_AGENT ?? join(PKGS, "metis-agent");
 const seed = resolve(process.argv[2] ?? "");
 const dir = resolve(process.argv[3] ?? "/tmp/loop-seeded");
@@ -31,31 +32,35 @@ const pkg = statSync(seed).isDirectory();
 const name = process.argv[4] ?? basename(seed, ".llp").replace(/-/g, "_");
 const SKIP = /\/(build|records|__pycache__)(\/|$)/;
 
-// the run, as loop.sh --scratch DIR --seed SEED --name NAME lays it out
-rmSync(dir, { recursive: true, force: true });
-const cat = join(dir, "catalog"), into = join(dir, "into");
+// the run, as `cd DIR && loop.sh --seed SEED --name NAME` lays it out
+const cat = dir, into = `${dir}.into`;
 for (const c of [cat, into]) {
-	mkdirSync(join(c, "domains"), { recursive: true });
-	cpSync(join(PKGS, "metis-catalog", "tools"), join(c, "tools"), { recursive: true });
+	rmSync(c, { recursive: true, force: true });
+	mkdirSync(c, { recursive: true });
 }
-mkdirSync(join(dir, "seed"));
-mkdirSync(join(dir, "records"));
-const rel = seed.startsWith(join(PKGS, "metis-catalog") + "/") ? seed.slice(join(PKGS, "metis-catalog").length + 1) : seed;
+const st = catalog.state(cat);                                     // DIR/.metis/: the loop's state
+mkdirSync(join(st, "seed"));
+mkdirSync(join(st, "records"));
+const at = seed.indexOf("/domains/");                             // catalog-relative inside a catalog (loop.sh's rule)
+const rel = at >= 0 ? seed.slice(at + 1) : seed;
 if (pkg) {
-	cpSync(seed, join(dir, "seed", "domains", name), { recursive: true, filter: (f) => !SKIP.test(f) });
-	cpSync(join(PKGS, "metis-catalog", "tools"), join(dir, "seed", "tools"), { recursive: true });
-	writeFileSync(join(dir, "seed.json"), JSON.stringify({ seed: rel, name, package: true }));
+	cpSync(seed, join(st, "seed", "domains", name), { recursive: true, filter: (f) => !SKIP.test(f) });
+	writeFileSync(join(st, "seed.json"), JSON.stringify({ seed: rel, name, package: true }));
 } else {
-	cpSync(seed, join(dir, "seed", `${name}.llp`));
-	writeFileSync(join(dir, "seed.json"), JSON.stringify({ seed: rel, name }));
+	cpSync(seed, join(st, "seed", `${name}.llp`));
+	writeFileSync(join(st, "seed.json"), JSON.stringify({ seed: rel, name }));
 }
+process.chdir(cat);
+// an RDDL host imports tools/rddl_host.py: the installed metis-catalog's, as loop.sh puts it on PYTHONPATH
+const rddlTools = catalog.installed().tools;
 Object.assign(process.env, {
 	METIS_CATALOG: cat,
 	METIS_LOOP_TAKE_INTO: into,
-	METIS_LOOP_RUN: dir,
-	METIS_LOOP_RECORDS: join(dir, "records"),
-	METIS_LOOP_LLP: join(dir, "seed", `${name}.llp`),
-	METIS_RDDL_PY: process.env.METIS_RDDL_PY ?? join(PKGS, ".venv", "bin", "python"), // a scratch catalog has no .venv beside it
+	METIS_LOOP_RUN: st,
+	PYTHONPATH: [rddlTools, process.env.PYTHONPATH].filter(Boolean).join(":"),
+	METIS_LOOP_RECORDS: join(st, "records"),
+	METIS_LOOP_LLP: join(st, "seed", `${name}.llp`),
+	METIS_RDDL_PY: process.env.METIS_RDDL_PY ?? join(PKGS, ".venv", "bin", "python"), // a DIR has no .venv beside it
 	METIS_LOOP_METIS: process.env.METIS_LOOP_METIS ?? join(PKGS, ".venv", "bin", "metis"),
 	METIS_LOOP_SDK_PY: process.env.METIS_LOOP_SDK_PY ?? join(PKGS, ".venv", "bin", "python"),
 	METIS_LOOP_AGENT_PY: process.env.METIS_LOOP_AGENT_PY ?? join(AGENT, "py", ".venv", "bin", "python"),
@@ -66,10 +71,10 @@ Object.assign(process.env, {
 const files = (root: string, at = ""): string[] =>
 	readdirSync(join(root, at), { withFileTypes: true }).flatMap((e) =>
 		SKIP.test(`/${at}/${e.name}/`) ? [] : e.isDirectory() ? files(root, join(at, e.name)) : [join(at, e.name)]);
-if (pkg) process.env.METIS_LOOP_LLP = catalog.get(name, join(dir, "seed")).program;
+if (pkg) process.env.METIS_LOOP_LLP = catalog.get(name, join(st, "seed")).program;
 const seedProg = process.env.METIS_LOOP_LLP!;
 const progName = basename(seedProg);
-const log = join(dir, "seeded.md");
+const log = join(st, "seeded.md");
 writeFileSync(log, `# a seeded start, scripted (${new Date().toISOString()}): ${rel} as the domain ${name}\n\n`);
 const say = (s: string) => {
 	appendFileSync(log, s + "\n");
@@ -205,7 +210,7 @@ async function main() {
 	check("a second take is refused", again.startsWith("BLOCKED:") && /already/.test(again));
 	const ok = Object.values(checks).every(Boolean);
 	say(`\n## end: ${ok ? "every check held" : "a check failed"}; ${gates.length} gates; ${n} calls`);
-	writeFileSync(join(dir, "seeded.json"), JSON.stringify({ seed: rel, name, calls: n, gates: gates.length, checks, ok }, null, 1));
+	writeFileSync(join(st, "seeded.json"), JSON.stringify({ seed: rel, name, calls: n, gates: gates.length, checks, ok }, null, 1));
 	process.exitCode = ok ? 0 : 1;
 }
 

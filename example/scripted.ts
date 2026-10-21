@@ -9,8 +9,12 @@
 //     example/scripted.ts DIR          (from this checkout)
 //   MODEL=openrouter/deepseek/deepseek-v4-pro …   formalize on OpenRouter instead (the loop
 //     SDK's OpenAI-compatible face; OPENROUTER_API_KEY from the environment; the calls and
-//     their cost in DIR/records/formalize-calls.jsonl)
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
+//     their cost in DIR/.metis/records/formalize-calls.jsonl)
+//
+// DIR is the catalog (cwd-root s-ddac2cbf): the lamp's world laid out in it (example/lamp/world.sh),
+// the script runs there, and its files (scripted.md, scripted.json, metis.toml, records/) go in DIR/.metis/.
+import { readFileSync, writeFileSync, appendFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import repl from "../extensions/metis-repl.ts";
@@ -18,38 +22,36 @@ import domain from "../extensions/metis-domain.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PI = join(HERE, "..");
-const PKGS = join(PI, "..");                                     // the sibling checkouts
+const PKGS = join(PI, "..");                                     // the workspace (its .venv, metis-agent: defaults)
 const AGENT = process.env.METIS_AGENT ?? join(PKGS, "metis-agent"); // the domain agent's checkout
 const dir = resolve(process.argv[2] ?? "/tmp/loop-scripted");
 const ollama = process.env.OLLAMA_URL ?? "http://127.0.0.1:11434";
 const model = process.env.MODEL ?? "metis-gemma4-e4b";
 
-// the scratch catalog, as loop.sh --scratch makes it
-const cat = join(dir, "catalog");
-if (!existsSync(join(cat, "domains"))) {
-	mkdirSync(join(cat, "domains", "lamp"), { recursive: true });
-	cpSync(join(PKGS, "metis-catalog", "tools"), join(cat, "tools"), { recursive: true }); // the intent generator the SDK runs on it
-	cpSync(join(PKGS, "metis-catalog", "domains", "plant"), join(cat, "domains", "plant"), { recursive: true });
-	cpSync(join(HERE, "lamp", "lamp_host.py"), join(cat, "domains", "lamp", "lamp_host.py"));
-}
-const conf = join(dir, "metis.toml");
 const sdkPy = process.env.METIS_LOOP_SDK_PY ?? join(PKGS, ".venv", "bin", "python"); // the loop SDK's model adapters
+// the catalog: DIR, the lamp's world laid out in it as a demo does (example/lamp/world.sh); the script runs in it
+const cat = dir;
+const llp = execFileSync(join(HERE, "lamp", "world.sh"), [cat], { encoding: "utf8", env: { ...process.env, METIS_LOOP_SDK_PY: sdkPy } }).trim();
+const st = join(cat, ".metis");
+process.chdir(cat);
+const conf = join(st, "metis.toml");
 const face = model.startsWith("openrouter/")
-	? `openai-command --base-url https://openrouter.ai/api/v1 --model ${model.slice("openrouter/".length)} --log ${join(dir, "records", "formalize-calls.jsonl")}`
+	? `openai-command --base-url https://openrouter.ai/api/v1 --model ${model.slice("openrouter/".length)} --log ${join(st, "records", "formalize-calls.jsonl")}`
 	: `ollama-command --model ${model} --url ${ollama}`;
 writeFileSync(conf, `[llm]\nendpoint = "command:${sdkPy} -m metis_loop_sdk.models ${face}"\n`);
 Object.assign(process.env, {
 	METIS_CATALOG: cat,
 	METIS_CONFIG: conf,
-	METIS_LOOP_LLP: join(cat, "domains", "plant", "plant.llp"),
+	METIS_LOOP_LLP: llp,
 	METIS_LOOP_METIS: join(PKGS, ".venv", "bin", "metis"),
 	METIS_LOOP_SDK_PY: sdkPy,
 	METIS_LOOP_AGENT_PY: join(AGENT, "py", ".venv", "bin", "python"),
 	METIS_LOOP_AGENT_DIR: join(AGENT, "py"),
-	METIS_LOOP_RECORDS: join(dir, "records"),
+	METIS_LOOP_RECORDS: join(st, "records"),
+	METIS_LOOP_RUN: st,
 });
 
-const log = join(dir, "scripted.md");
+const log = join(st, "scripted.md");
 writeFileSync(log, `# the loop, scripted (${new Date().toISOString()}; formalize on ${model}${model.startsWith("openrouter/") ? "" : " at " + ollama})\n\n`);
 const say = (s: string) => {
 	appendFileSync(log, s + "\n");
@@ -153,7 +155,7 @@ async function main() {
 	await call("domain_events", { domain: "lamp" }, "re-exercise");
 	const fixed = !/SURPRISE/.test(re);
 	say(`\n## end (${secs()} s): ${fixed ? "the burn-out is modelled: no surprise in the re-exercise" : "the re-exercise still surprised"}; ${approvals} approvals; ${n} calls`);
-	writeFileSync(join(dir, "scripted.json"), JSON.stringify({ seconds: Number(secs()), calls: n, approvals, surprised, fixed }, null, 1));
+	writeFileSync(join(st, "scripted.json"), JSON.stringify({ seconds: Number(secs()), calls: n, approvals, surprised, fixed }, null, 1));
 }
 
 main()

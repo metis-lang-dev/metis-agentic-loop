@@ -52,7 +52,7 @@ AGENT-LOOP.md's steps, each with the tools it uses and the state it leaves behin
 | **re-exercise** | the domain is opened again on the catalog as it is now; the same situation must now be explained | `domain_open`, … | an explained record, or no surprise |
 | **seed** | a seeded start (`loop.sh --seed PATH.llp`): the REPL serves an existing program, and it becomes the domain's program as it is, gated; formalize and revise are skipped | `catalog_apply` what=served | the domain's program and `domain.yaml` |
 | **edit** | a small change to a file the catalog has (a comment, a header line, a README sentence, a value, one rule's text): the SDK's `edit`, old_string exactly once (or replace_all), the path inside the domain, a `.llp` edit adding no metisc diagnostic; never formalize or revise | `catalog_edit` | that one file |
-| **take** | when the person asks: the domain is taken from the loop's (scratch) catalog into the person's (`METIS_LOOP_TAKE_INTO`) through the SDK's `take`, with a README of the run and its bundle, gated, never a commit | `catalog_take` | `domains/<n>/` in the person's catalog |
+| **take** | when the person asks: the domain is taken from the loop's catalog (the directory it runs in) into the person's (`METIS_LOOP_TAKE_INTO`, `loop.sh --into DIR2`) through the SDK's `take`, with a README of the run and its bundle, gated, never a commit | `catalog_take` | `domains/<n>/` in the person's catalog |
 | **stop** | the person stops the run | (pi: abort) | the session file |
 
 **The person's entries, all through pi** (the TUI, or RPC for a client):
@@ -140,7 +140,7 @@ fired ×200, beat 0: …`.
 ```
 ./setup.sh                                    # node v22.23.3 + pi 1.3.0 into this checkout (once)
 ollama create metis-gemma4-e4b -f ollama/Modelfile     # the GPU model (…-cpu: Modelfile.cpu)
-./loop.sh --scratch /tmp/loop                 # pi's TUI over a scratch catalog (the lamp's world)
+example/lamp/world.sh /tmp/loop && cd /tmp/loop && …/loop.sh   # pi's TUI over a catalog with the lamp's world
 ./example/person.py /tmp/run1                 # the worked example, the person scripted over RPC
 ```
 

@@ -6,15 +6,16 @@ itself; this one stops at every gate and waits for the answer.
 
     example/seedperson.py DIR --seed PATH.llp [--name NAME] [--model M] [--max-usd 0.3] [--minutes 40]
 
-Starts loop.sh --scratch DIR --seed … --mode rpc under a MemoryMax=6G scope, sends
-DIR/seed/task.md as the first message, and logs everything (events.jsonl, transcript.md).
-At each gate (extension_ui_request confirm/select) and each time the agent settles, it
-writes the question to DIR/ask/<n>.md, puts that path in DIR/WAITING, and waits for
-DIR/ask/<n>.ans:
+Starts cd DIR && loop.sh --seed … --mode rpc under a MemoryMax=6G scope (DIR is the
+catalog the seed becomes a domain of; cwd-root s-ddac2cbf), sends DIR/.metis/seed/task.md as
+the first message, and logs everything (events.jsonl, transcript.md) in DIR/.metis/ (the
+loop's state; every file named below is there). At each gate (extension_ui_request
+confirm/select) and each time the agent settles, it writes the question to ask/<n>.md,
+puts that path in WAITING, and waits for ask/<n>.ans:
   gate:    first line y | n ; any further lines are sent as a steer after the answer
   settled: 'stop', or the text of the next prompt
-pi's own cost (its usage.cost) over --max-usd aborts the run. At the end DIR/run.json
-holds the reason, the seconds, pi's cost, the requests and every gate's answer; DIR/DONE
+pi's own cost (its usage.cost) over --max-usd aborts the run. At the end run.json
+holds the reason, the seconds, pi's cost, the requests and every gate's answer; DONE
 appears. With OPENROUTER_API_KEY set, run.json also has the key's usage before and after
 (example/openrouter_key.py) and their difference, usd_by_key.
 """
@@ -50,18 +51,21 @@ def main():
     ap.add_argument("--max-usd", type=float, default=0.3)
     ap.add_argument("--minutes", type=float, default=40)
     a = ap.parse_args()
-    d = a.dir.resolve()
+    cat = a.dir.resolve()
+    d = cat / ".metis"                                  # the loop's state (loop.sh: the SDK's catalog.state())
     d.mkdir(parents=True, exist_ok=True)
     ask = d / "ask"
     ask.mkdir(exist_ok=True)
     env = dict(os.environ, MODEL=a.model, METIS_LOOP_CUDA="")
+    env.pop("METIS_CATALOG", None)                      # the catalog is the cwd, DIR
     # an RDDL world's gym runs under the packages' shared venv (loop.sh's default too; rddl-worlds step 2)
     env.setdefault("METIS_RDDL_PY", str(LOOP.parent / ".venv" / "bin" / "python"))
     cmd = ["systemd-run", "--user", "--scope", "-q", "-p", "MemoryMax=6G", "-p", "MemorySwapMax=0",
-           str(LOOP / "loop.sh"), "--scratch", str(d), "--seed", a.seed] + (["--name", a.name] if a.name else []) + \
+           str(LOOP / "loop.sh"), "--seed", a.seed] + (["--name", a.name] if a.name else []) + \
           ["--mode", "rpc"]
     before = key_usage()
-    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=open(d / "pi.stderr", "w"), env=env)
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=open(d / "pi.stderr", "w"), env=env,
+                            cwd=cat)
     # the time limit holds while readline waits on a silent pi: the watchdog ends it
     watchdog = threading.Timer(a.minutes * 60, proc.kill)
     watchdog.daemon = True

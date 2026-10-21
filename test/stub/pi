@@ -2,5 +2,5 @@
 """pi's stand-in for loop.sh's tests (METIS_LOOP_PI): what loop.sh hands pi — its
 arguments and the loop's environment — as JSON on stdout."""
 import json, os, sys
-print(json.dumps({"args": sys.argv[1:], "env": {k: v for k, v in os.environ.items() if k.startswith(("METIS_", "PI_"))},
+print(json.dumps({"args": sys.argv[1:], "env": {k: v for k, v in os.environ.items() if k.startswith(("METIS_", "PI_")) or k == "PYTHONPATH"},
                   "cwd": os.getcwd()}))

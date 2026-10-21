@@ -64,13 +64,15 @@ jobs:
           # README's mechanical parts (loop-fixes s-855d8067), and take carrying the
           # files a program includes (rddl-worlds s-242c7c3f: a package seed); sdk-v0.1.6:
           # take carries a manifest's notch and keeps every file's bytes (CRLF), a notch
-          # never edited (release-check s-7dc259fc: the pin follows the newest tag)
-          pip install "metis-loop-sdk @ git+https://github.com/metis-lang-dev/metis-loop@sdk-v0.1.6#subdirectory=sdk"
+          # never edited (release-check s-7dc259fc: the pin follows the newest tag); sdk-v0.1.9:
+          # the root is the cwd, state() = DIR/.metis/, installed() (cwd-root s-ddac2cbf)
+          pip install "metis-loop-sdk @ git+https://github.com/metis-lang-dev/metis-loop@sdk-v0.1.9#subdirectory=sdk"
           python -m metis_loop_sdk.catalog intents --help | grep -q -- --spec
           python -m metis_loop_sdk.catalog take --help > /dev/null
           python -m metis_loop_sdk.catalog edit --help | grep -q -- --replace-all
           python -m metis_loop_sdk.catalog readme --help | grep -q -- --summary
-          python -c "from metis_loop_sdk import catalog; assert catalog.includes"
+          python -c "from metis_loop_sdk import catalog; assert catalog.includes and catalog.state and catalog.installed"
+          python -m metis_loop_sdk.catalog installed --json
           python -m metis_loop_sdk.models openai-command --help > /dev/null
           python -c "import metis_loop_sdk.models.openai, metis_loop_sdk.catalog; print('sdk', metis_loop_sdk.__version__)"
       # nav's and wildfire's hosts step the IPPC gym in an interpreter of their own: pyRDDLGym and
@@ -85,10 +87,12 @@ jobs:
         run: ./setup.sh
       - name: Shell syntax
         working-directory: metis-agentic-loop
-        run: bash -n setup.sh pi.sh loop.sh take.sh demo.sh
+        run: bash -n setup.sh pi.sh loop.sh take.sh demo.sh example/lamp/world.sh
       - name: node tests
         working-directory: metis-agentic-loop
         run: |
           export REAL_METIS="$(command -v metis)" TEST_AGENT_PY="$(command -v python)" TEST_SDK_PY="$(command -v python)" TEST_REQUIRE_METISC=1
           export TEST_REQUIRE_AGENT=1 TEST_REQUIRE_GYM=1
+          # the fixtures' catalog (love_triangle, nav): the checkout, named (the installed wheel has no ceptre/)
+          export TEST_CATALOG="$GITHUB_WORKSPACE/metis-catalog"
           ./node/bin/node --experimental-strip-types --test test/extensions.test.ts

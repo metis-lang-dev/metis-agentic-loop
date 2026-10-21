@@ -22,7 +22,7 @@
 //   METIS_LOOP_AGENT_PY   metis-agent/py's python (the domain agent's venv)
 //   METIS_LOOP_AGENT_DIR  metis-agent/py (the process's working directory)
 //   METIS_LOOP_METIS      metispy's `metis` (for --tools-json)
-//   METIS_CATALOG         the catalog the domains come from (a scratch copy for trials)
+//   METIS_CATALOG         the catalog the domains come from (loop.sh: the directory it starts in)
 //   METIS_LOOP_SDK_PY     a python with the loop SDK: a domain's intents come through its catalog (./sdk/catalog.ts, its TypeScript face)
 //   METIS_LOOP_RECORDS    where the domain agent sinks its records
 import { execFileSync } from "node:child_process";

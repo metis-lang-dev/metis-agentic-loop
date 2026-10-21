@@ -12,12 +12,12 @@
 //
 // Environment (loop.sh sets them):
 //   METIS_LOOP_METIS   the metis console script (metispy's `metis`)
-//   METIS_CATALOG      the catalog catalog_apply writes into (a scratch copy for trials)
+//   METIS_CATALOG      the catalog catalog_apply writes into (loop.sh: the directory it starts in)
 //   METIS_LOOP_SDK_PY  a python with the loop SDK: the catalog is its (./sdk: its TypeScript face, setup.sh links it)
 //   METIS_CONFIG       the kernel's dot file ([llm]: formalize's endpoint)
 //   METIS_LOOP_LLP     optional: the program the REPL starts on (else a blank world)
-//   METIS_LOOP_TAKE_INTO the catalog catalog_take takes a domain into (loop.sh --scratch: metis-catalog)
-//   METIS_LOOP_RUN     the run's directory (loop.sh --scratch DIR: records/, seed.json), for the taken domain's README
+//   METIS_LOOP_TAKE_INTO the catalog catalog_take takes a domain into (loop.sh --into DIR2; none: it refuses)
+//   METIS_LOOP_RUN     the loop's state (DIR/.metis/: records/, seed/, seed.json), for the taken domain's README
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, posix, resolve } from "node:path";
 import { Type } from "@earendil-works/pi-ai";
@@ -133,6 +133,22 @@ export default function (pi: ExtensionAPI) {
 		refused.set(k, m);
 	}
 
+	// a seed (DIR/.metis/seed.json) whose domain is not in the catalog yet
+	function seedPending(root: string): boolean {
+		let name: string;
+		try {
+			name = JSON.parse(readFileSync(join(runDir(), "seed.json"), "utf8")).name;
+		} catch {
+			return false;
+		}
+		try {
+			catalog.get(name, root);
+			return false;
+		} catch {
+			return true;
+		}
+	}
+
 	async function plan(p: ApplyArgs): Promise<Plan> {
 		if (!NAME.test(p.domain)) throw new Error(`domain ${JSON.stringify(p.domain)}: lowercase letters, digits, _`);
 		if (!["program", "served", "extension", "intents", "readme"].includes(p.what))
@@ -150,7 +166,8 @@ export default function (pi: ExtensionAPI) {
 			known = false;
 		}
 		// a seeded run applies the seed first: a change to it is then a diff against it, never a "(new)" file
-		if (!known && existsSync(join(runDir(), "seed.json")) && (p.what === "program" || p.what === "extension"))
+		// (review R2). Once the seed's domain is in the catalog the DIR is a catalog like any: a new domain may be made
+		if (!known && seedPending(root) && (p.what === "program" || p.what === "extension"))
 			throw new Error(`a seeded run applies the seed first (catalog_apply domain=${p.domain} what=served); a change to it is then its diff against the seed`);
 		if (p.what === "readme") {
 			// the SDK writes every mechanical part (where it came from, the program's header, how to run it,

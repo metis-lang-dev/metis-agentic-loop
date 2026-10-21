@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """The worked example's person (docs/LOOP-AGENT.md "The worked example"): a pi
 RPC client that plays the person of the agentic loop, so the run is repeatable.
-It starts the loop (loop.sh --mode rpc) on a scratch catalog, gives
+It lays out the lamp's world in DIR (example/lamp/world.sh), starts the loop there
+(cd DIR && loop.sh --mode rpc: DIR is the catalog; cwd-root s-ddac2cbf), gives
 the goal and the prose, steers once, answers every apply confirmation, says
 "continue" when the model stops before the loop is through (each one counted,
 the person's turn), and stops the run (abort) at the end or at the budget.
@@ -10,7 +11,8 @@ the person's turn), and stops the run (abort) at the end or at the budget.
         [--deny-first]       refuse the first apply (the gate holds: the model must ask)
         [--max-usd X]        abort once the model's cost (pi's usage, the catalog's prices) passes X
 
-DIR gets the scratch catalog, the pi session, and:
+DIR is the catalog the run writes (domains/lamp/); DIR/.metis/ gets the pi session, the
+records, and:
     events.jsonl    every RPC record, as it came
     transcript.md   the run as read: the person, the model's words, every tool
                     call with its arguments and result (capped), the gates
@@ -67,11 +69,13 @@ def main():
     ap.add_argument("--deny-first", action="store_true")
     ap.add_argument("--max-usd", type=float, default=0)
     a = ap.parse_args()
-    d = a.dir.resolve()
-    d.mkdir(parents=True, exist_ok=True)
+    cat = a.dir.resolve()
+    llp = subprocess.run([str(HERE / "lamp" / "world.sh"), str(cat)], check=True, capture_output=True, text=True).stdout.strip()
+    d = cat / ".metis"                                  # the loop's state: the run's files beside its records
     prose = (HERE / "lamp" / "prose.md").read_text()
-    env = dict(os.environ, MODEL=a.model)
-    proc = subprocess.Popen([str(PI / "loop.sh"), "--scratch", str(d), "--mode", "rpc"], stdin=subprocess.PIPE,
+    env = dict(os.environ, MODEL=a.model, METIS_LOOP_LLP=llp)
+    env.pop("METIS_CATALOG", None)
+    proc = subprocess.Popen([str(PI / "loop.sh"), "--mode", "rpc"], stdin=subprocess.PIPE, cwd=cat,
                             stdout=subprocess.PIPE, stderr=open(d / "pi.stderr", "w"), env=env)
     ev = open(d / "events.jsonl", "w")
     tr = open(d / "transcript.md", "w")
