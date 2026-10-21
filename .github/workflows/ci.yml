@@ -65,14 +65,18 @@ jobs:
           # files a program includes (rddl-worlds s-242c7c3f: a package seed); sdk-v0.1.6:
           # take carries a manifest's notch and keeps every file's bytes (CRLF), a notch
           # never edited (release-check s-7dc259fc: the pin follows the newest tag); sdk-v0.1.9:
-          # the root is the cwd, state() = DIR/.metis/, installed() (cwd-root s-ddac2cbf)
-          pip install "metis-loop-sdk @ git+https://github.com/metis-lang-dev/metis-loop@sdk-v0.1.9#subdirectory=sdk"
+          # the root is the cwd, state() = DIR/.metis/, installed() (cwd-root s-ddac2cbf); sdk-v0.1.10:
+          # the loop's policy, metis_loop_sdk.gate and its face ts/gate.ts (loop-parity s-72d9d36b)
+          pip install "metis-loop-sdk @ git+https://github.com/metis-lang-dev/metis-loop@sdk-v0.1.10#subdirectory=sdk"
           python -m metis_loop_sdk.catalog intents --help | grep -q -- --spec
           python -m metis_loop_sdk.catalog take --help > /dev/null
           python -m metis_loop_sdk.catalog edit --help | grep -q -- --replace-all
           python -m metis_loop_sdk.catalog readme --help | grep -q -- --summary
           python -c "from metis_loop_sdk import catalog; assert catalog.includes and catalog.state and catalog.installed"
           python -m metis_loop_sdk.catalog installed --json
+          python -m metis_loop_sdk.gate --help > /dev/null
+          python -m metis_loop_sdk.catalog ts --json | grep -q gate.ts
+          python -c "from metis.loop.wire import reload_shell"      # metispy's wire reload (the rescue in the kernel)
           python -m metis_loop_sdk.models openai-command --help > /dev/null
           python -c "import metis_loop_sdk.models.openai, metis_loop_sdk.catalog; print('sdk', metis_loop_sdk.__version__)"
       # nav's and wildfire's hosts step the IPPC gym in an interpreter of their own: pyRDDLGym and

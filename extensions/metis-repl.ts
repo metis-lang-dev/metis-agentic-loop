@@ -8,7 +8,10 @@
 // person approves every write into the catalog); catalog_edit, one exact edit of a
 // domain's file (comments and all), behind the same gate; and catalog_take, which
 // takes a finished domain from the loop's catalog into the person's, behind it too.
-// A file the person refused is remembered: its next proposal shows what changed since.
+// Their rules are the loop SDK's gate (metis_loop_sdk.gate, ./sdk/gate.ts; metis-loop
+// docs/LOOP.md), the policy the human loop's console follows too: propose, the person
+// reads the plan, confirm writes exactly it; a refused file's next proposal shows what
+// changed since; the seed first; an applied program that won't load never replaces the one served.
 //
 // Environment (loop.sh sets them):
 //   METIS_LOOP_METIS   the metis console script (metispy's `metis`)
@@ -19,12 +22,13 @@
 //   METIS_LOOP_TAKE_INTO the catalog catalog_take takes a domain into (loop.sh --into DIR2; none: it refuses)
 //   METIS_LOOP_RUN     the loop's state (DIR/.metis/: records/, seed/, seed.json), for the taken domain's README
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, posix, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { Type } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { cap, JsonlChild, type Line } from "./lib/jsonl.ts";
 import { runDir, takeRoot, writeRoot } from "./lib/roots.ts";
 import * as catalog from "./sdk/catalog.ts";
+import * as gate from "./sdk/gate.ts";
 
 const NO_WORDS = "(the REPL's wire declares no description for this verb — finding: metispy)";
 const ARG = Type.Object({
@@ -35,6 +39,7 @@ const NAME = /^[a-z][a-z0-9_]*$/;
 export default function (pi: ExtensionAPI) {
 	let repl: JsonlChild | null = null;
 	let served: string | null = null; // the program file the REPL serves (null: a blank world)
+	let servedHost: string | null = null; // the host it was started with (--host: the operator's argv, D4)
 	const registered = new Set<string>();
 	const metis = () => process.env.METIS_LOOP_METIS || "metis";
 
@@ -47,15 +52,28 @@ export default function (pi: ExtensionAPI) {
 		repl?.close();
 		repl = spawn(llp, host);
 		served = llp;
+		servedHost = host;
 	}
 
-	// serve another program; the REPL that was keeps serving (and keeps its
-	// candidate) until the new one answers — a program metis cannot load leaves
-	// the loop a REPL, not a dead process. null on success, else why it failed.
+	// serve another program: an applied program that won't load never replaces the one served
+	// (docs/LOOP.md). With the same host, the kernel's own wire `reload` re-serves in place and
+	// keeps the program, its candidate and the session when the new one cannot load; another
+	// host is a new process (D4: a host is named on argv only), the one that was serving until
+	// the new one answers. null on success, else why it failed.
 	async function reopen(llp: string, host: string | null): Promise<string | null> {
-		const old = repl, oldServed = served;
+		if (repl && host === servedHost) {
+			const r = await op("reload", llp);
+			if (!(r.ok === false && /unknown op 'reload'/.test(String(r.error ?? "")))) { // a metispy before reload: a new process
+				if (r.ok === false) return JSON.stringify(r.findings ?? r);
+				served = llp;
+				await registerVerbs();
+				return null;
+			}
+		}
+		const old = repl, oldServed = served, oldHost = servedHost;
 		repl = spawn(llp, host);
 		served = llp;
+		servedHost = host;
 		try {
 			const h = await op("help"); // metis answers a program it cannot load with ok:false (and exits)
 			if (h.ok === false) throw new Error(JSON.stringify(h.findings ?? h));
@@ -66,6 +84,7 @@ export default function (pi: ExtensionAPI) {
 			repl.close();
 			repl = old;
 			served = oldServed;
+			servedHost = oldHost;
 			return (e as Error).message;
 		}
 	}
@@ -110,184 +129,69 @@ export default function (pi: ExtensionAPI) {
 		return { ops: ops.length, undescribed: ops.filter((v) => !words[v]) };
 	}
 
-	// ---- catalog_apply: the one write, gated --------------------------------
-	// through the loop SDK's catalog (its TypeScript face, ./sdk/catalog.ts: the
-	// py SDK's CLI): the plan is its dry run (each file's diff, what the person
-	// approves), the write its apply with the same text — domain.yaml checked by
-	// the catalog's loader, the intent files generated, never a commit
+	// ---- the catalog's writes, gated: the loop SDK's gate (loop-parity s-72d9d36b) ----------
+	// The policy is the SDK's (metis_loop_sdk.gate, its TypeScript face ./sdk/gate.ts): a write is a
+	// proposal, its plan the files it writes with their diffs; the person reads it at pi's tool_call
+	// gate, then the tool confirms it, which writes exactly that plan; a refused proposal is
+	// remembered (its next plan shows what changed since); the seed-first and README-refused rules
+	// and the take into another catalog are its. Here: what only this host has — the REPL's
+	// candidate and the program it serves, the person at pi's confirm, and serving the program after.
 
-	// root: the catalog the write goes to; run: the write the person approved; tool: whose
-	// plan it is (one tool's approval never runs another's write); note: no write, and why
 	type Tool = "catalog_apply" | "catalog_edit" | "catalog_take";
-	// say: a word for the model with the write's result (what was given and not used)
-	type Plan = { tool: Tool; domain: string; root: string; files: catalog.Planned[]; run: () => catalog.Applied; reopen: boolean; note?: string; say?: string };
+	type Plan = gate.Plan & { tool: Tool };
 	type ApplyArgs = { domain: string; what: string; name?: string; text?: string; title?: string; display?: string; line?: string };
+	type EditArgs = { domain: string; path: string; old_string: string; new_string: string; replace_all?: boolean };
 
-	// the last proposal of each file the person refused, by catalog: the next plan diffs from it
-	const refused = new Map<string, Map<string, string>>();
-	const since = (root: string) => ({ since: Object.fromEntries(refused.get(resolve(root)) ?? []) });
-	function remember(pl: Plan, ok: boolean) {
-		const k = resolve(pl.root);
-		const m = refused.get(k) ?? new Map<string, string>();
-		for (const f of pl.files) ok ? m.delete(f.path) : m.set(f.path, f.text);
-		refused.set(k, m);
-	}
-
-	// a seed (DIR/.metis/seed.json) whose domain is not in the catalog yet
-	function seedPending(root: string): boolean {
-		let name: string;
-		try {
-			name = JSON.parse(readFileSync(join(runDir(), "seed.json"), "utf8")).name;
-		} catch {
-			return false;
+	// the proposal of a tool call: the REPL's part first (its candidate, what it serves), then the gate's
+	async function propose(tool: Tool, input: any): Promise<Plan> {
+		const o = { root: writeRoot(), state: runDir() };
+		if (tool === "catalog_take") {
+			const into = takeRoot();
+			return { ...gate.propose("take", input.domain, { src: o.root }, { ...o, root: into }), tool };
 		}
-		try {
-			catalog.get(name, root);
-			return false;
-		} catch {
-			return true;
+		if (tool === "catalog_edit") {
+			const p = input as EditArgs;
+			return { ...gate.propose("edit", p.domain, { path: p.path, old: p.old_string, new: p.new_string, replace_all: !!p.replace_all }, o), tool };
 		}
-	}
-
-	async function plan(p: ApplyArgs): Promise<Plan> {
-		if (!NAME.test(p.domain)) throw new Error(`domain ${JSON.stringify(p.domain)}: lowercase letters, digits, _`);
-		if (!["program", "served", "extension", "intents", "readme"].includes(p.what))
-			throw new Error(`what: program | served | extension | intents | readme, not ${JSON.stringify(p.what)}`);
-		const root = writeRoot();
-		const planned = (w: catalog.Write, reopen = false): Plan => ({
-			tool: "catalog_apply", domain: p.domain, root, reopen, files: catalog.plan(p.domain, w, root, since(root)),
-			run: () => catalog.apply(p.domain, w, root),
-		});
-		const shown = { ...(p.display !== undefined ? { display: p.display } : {}), ...(p.line !== undefined ? { line: p.line } : {}) };
-		let known = true;
-		try {
-			catalog.get(p.domain, root);
-		} catch {
-			known = false;
-		}
-		// a seeded run applies the seed first: a change to it is then a diff against it, never a "(new)" file
-		// (review R2). Once the seed's domain is in the catalog the DIR is a catalog like any: a new domain may be made
-		if (!known && seedPending(root) && (p.what === "program" || p.what === "extension"))
-			throw new Error(`a seeded run applies the seed first (catalog_apply domain=${p.domain} what=served); a change to it is then its diff against the seed`);
-		if (p.what === "readme") {
-			// the SDK writes every mechanical part (where it came from, the program's header, how to run it,
-			// the intents); the model's words are the summary paragraph and the title only
-			if (!known) throw new Error(`no domain ${p.domain} in the loop's catalog yet: its README follows its program`);
-			if (!p.text?.trim()) throw new Error("what=readme: text is the summary paragraph (what the program tells; the SDK writes the rest)");
-			return planned({ readme: catalog.readme(p.domain, { from: root, run: runDir(), summary: p.text, title: p.title }) });
-		}
-		if (p.what === "intents") {
-			// a first intent.yaml drafted from the program; apply names it in domain.yaml (intent: {spec})
-			const sk = catalog.skeleton(p.domain, root);
-			if (sk === null)
-				return { tool: "catalog_apply", domain: p.domain, root, reopen: false, files: [], run: () => ({ written: [], diff: "", fingerprint: null }),
-					note: "no intent.yaml: the world takes no commands (its program has no cmd_* atom), so the agents open it with no verbs" };
-			return planned({ intents: sk });
-		}
-		let text: string;
-		// a package seed (loop.sh --seed domains/<name>/): the whole package, as the seed catalog has it
-		const seed = (() => {
-			try {
-				return JSON.parse(readFileSync(join(runDir(), "seed.json"), "utf8"));
-			} catch {
-				return null;
-			}
-		})();
-		// a seed is applied under its own name: another would leave the seed pending in this DIR for good (review F2)
-		if (p.what === "served" && seed && !seed.package && p.domain !== seed.name && seedPending(root))
-			throw new Error(`the seed is ${seed.name}: catalog_apply domain=${seed.name} what=served`);
-		if (p.what === "served" && seed?.package) {
-			if (p.domain !== seed.name) throw new Error(`the seed is the package ${seed.name}: catalog_apply domain=${seed.name} what=served`);
-			const from = join(runDir(), "seed");
-			// its domain.yaml as it is: a display or line given here is not used, and the result says so
-			let say: string | undefined;
-			if (p.display !== undefined || p.line !== undefined) {
-				const own = catalog.get(p.domain, from);
-				say = ` The package's own domain.yaml is used as it is, so the display and line given here were not: it has display ${JSON.stringify(own.display ?? null)} and line ${JSON.stringify(own.line ?? null)}.`;
-			}
-			return { tool: "catalog_apply", domain: p.domain, root, reopen: true, files: catalog.planTake(p.domain, from, {}, root, since(root)),
-				run: () => catalog.take(p.domain, from, {}, root), say };
-		}
+		const p = input as ApplyArgs;
+		const args: Record<string, unknown> = {};
+		for (const k of ["display", "line", "title", "name"] as const) if (p[k] !== undefined) args[k] = p[k];
+		if (p.what === "readme") args.text = p.text ?? "";
 		if (p.what === "served") {
 			// the program the REPL serves, as it is (loop.sh --seed: the seed): no candidate, no rule changed
-			if (!served) throw new Error("the REPL serves a blank world: there is no program to apply (loop.sh --seed starts it on one)");
-			text = readFileSync(served, "utf8");
-		} else {
+			// (a package seed comes whole from the seed's catalog: the gate does not read it)
+			if (served && existsSync(served)) args.text = readFileSync(served, "utf8");
+		} else if (p.what === "program" || p.what === "extension") {
 			const st = await op("show");
 			if (!st.candidate) throw new Error("no candidate in the REPL: formalize (or mine + formalize) first");
 			if (!st.gated) throw new Error("the candidate has not passed the gate: run repl_gate (an extension) or repl_revise (a program) until it does");
-			text = String((await op("show", "llp")).llp ?? "");
+			let text = String((await op("show", "llp")).llp ?? "");
 			if (!text.endsWith("\n")) text += "\n";
-			if (p.what === "extension") {
-				const name = p.name && NAME.test(p.name) ? p.name : "";
-				if (!name) throw new Error("an extension needs a name (lowercase): it is written to domains/<domain>/extensions/<name>.llp");
-				return planned({ extensions: { [name]: text } });
-			}
+			args.text = text;
+		} else if (p.what !== "intents" && p.what !== "readme") {
+			throw new Error(`what: program | served | extension | intents | readme, not ${JSON.stringify(p.what)}`);
 		}
-		if (known) return planned({ program: text, ...shown }, true);
-		// a new domain: its manifest, the host beside the program when the world brought one
-		const host = existsSync(join(root, "domains", p.domain, `${p.domain}_host.py`)) ? `${p.domain}_host.py:make` : null;
-		const manifest =
-			`# written by the agentic loop's catalog_apply (docs/LOOP-AGENT.md)\nprogram: ${p.domain}.llp\n` +
-			(host ? `host: ${host}\n` : "") +
-			`clock: {beats: 1}\nrecords: records/\n`;
-		return planned({ program: text, manifest, ...shown }, true);
-	}
-
-	// catalog_edit: one exact edit of a domain's file on disk, by the SDK (comments and all; a .llp's
-	// diagnostics checked); the program edited, the REPL serves it again
-	type EditArgs = { domain: string; path: string; old_string: string; new_string: string; replace_all?: boolean };
-	function planEdit(p: EditArgs): Plan {
-		if (!NAME.test(p.domain)) throw new Error(`domain ${JSON.stringify(p.domain)}: lowercase letters, digits, _`);
-		const root = writeRoot();
-		const d = catalog.get(p.domain, root); // the loop's catalog has it (the SDK's error otherwise)
-		const rel = `domains/${p.domain}/${posix.normalize(p.path)}`;
-		if (!existsSync(join(d.dir, p.path)) && refused.get(resolve(root))?.has(rel))
-			throw new Error(`${p.path} was never written: the person refused its proposal. Send it again through catalog_apply with only the fix; its gate shows what changed since`);
-		const e: catalog.Edit = { path: p.path, old_string: p.old_string, new_string: p.new_string, replace_all: !!p.replace_all };
-		const files = catalog.planEdit(p.domain, e, root, since(root));
-		// the write is what the gate showed: a file that moved since (the same edit now gives another text) is refused
-		const run = () => {
-			const now = catalog.planEdit(p.domain, e, root);
-			if (now.length !== files.length || now.some((f, i) => f.path !== files[i].path || f.text !== files[i].text))
-				throw new Error(`${p.path} changed after the person approved the edit: nothing written; propose it again`);
-			return catalog.edit(p.domain, e, root);
-		};
-		return { tool: "catalog_edit", domain: p.domain, root, reopen: !!d.program && resolve(d.dir, p.path) === resolve(d.program), files, run };
-	}
-
-	// catalog_take: the SDK's take from the loop's catalog into the person's — the
-	// domain's own files, with a README of the run (the SDK's readme) when it has none
-	function planTake(p: { domain: string }): Plan {
-		if (!NAME.test(p.domain)) throw new Error(`domain ${JSON.stringify(p.domain)}: lowercase letters, digits, _`);
-		const from = writeRoot();
-		const into = takeRoot();
-		catalog.get(p.domain, from); // the loop's catalog has it (the SDK's error otherwise)
-		const o = { readmeFromRun: runDir() };
-		return { tool: "catalog_take", domain: p.domain, root: into, reopen: false,
-			files: catalog.planTake(p.domain, from, o, into, since(into)), run: () => catalog.take(p.domain, from, o, into) };
+		return { ...gate.propose(p.what as gate.Kind, p.domain, args, o), tool };
 	}
 
 	const plans = new Map<string, Plan>(); // toolCallId -> the plan the person approved
 
-	// an approved plan's write, the REPL serving the program again when it was written
+	// an approved plan's write (the gate's confirm), the REPL serving the program again when it was written
 	async function execute(id: string, tool: Tool) {
 		const pl = plans.get(id);
 		plans.delete(id);
 		if (!pl || pl.tool !== tool) throw new Error("not approved");
-		if (pl.note) return { content: [{ type: "text" as const, text: pl.note + "." }], details: { written: [], note: pl.note } };
-		const out = pl.run();
-		remember(pl, true);
+		const out = gate.confirm(pl.token, runDir());
+		if (out.note) return { content: [{ type: "text" as const, text: out.note + "." }], details: { written: [], note: out.note } };
 		const written: string[] = out.written;
 		let after = "";
-		if (pl.reopen) {
+		if (out.serve) {
 			// the program and its host as the catalog's loader names them
-			const d = catalog.get(pl.domain, pl.root);
-			const host = d.host && /\.py:/.test(d.host) ? join(dirname(d.program), d.host) : d.host;
-			const failed = await reopen(d.program, host);
+			const { program, host } = out.serve;
+			const failed = await reopen(program, host);
 			after = failed
 				? ` But metis cannot load the program it wrote: ${failed.slice(0, 600)}. The REPL still serves what it served before, its candidate kept: repair the text, formalize, check and apply again.`
-				: ` The REPL now serves ${d.program}${host ? " with its host" : ""}.`;
+				: ` The REPL now serves ${program}${host ? " with its host" : ""}.`;
 		}
 		return {
 			content: [{ type: "text" as const, text: `applied: ${written.length ? written.join(", ") : "nothing (the catalog has it already)"}.${after}${pl.say ?? ""}` }],
@@ -356,14 +260,8 @@ export default function (pi: ExtensionAPI) {
 			const pl = plans.get(id);
 			plans.delete(id);
 			if (pl?.tool !== "catalog_take") throw new Error("not approved");
-			const out = pl.run();
-			remember(pl, true);
-			let bundle: string;
-			try {
-				bundle = catalog.build(pl.domain, pl.root);
-			} catch (e) {
-				bundle = (e as Error).message;
-			}
+			const out = gate.confirm(pl.token, runDir());
+			const bundle = out.bundle ?? "";
 			return {
 				content: [{ type: "text", text: `taken into ${pl.root}: ${out.written.join(", ")}. ${bundle}. Not committed: the person commits domains/${pl.domain} in that catalog.` }],
 				details: { written: out.written, fingerprint: out.fingerprint, root: pl.root },
@@ -379,9 +277,7 @@ export default function (pi: ExtensionAPI) {
 		if (tool !== "catalog_apply" && tool !== "catalog_edit" && tool !== "catalog_take") return undefined;
 		let pl: Plan;
 		try {
-			pl = tool === "catalog_take" ? planTake(event.input as { domain: string })
-				: tool === "catalog_edit" ? planEdit(event.input as EditArgs)
-				: await plan(event.input as ApplyArgs);
+			pl = await propose(tool, event.input);
 		} catch (e) {
 			return { block: true, reason: (e as Error).message };
 		}
@@ -399,8 +295,10 @@ export default function (pi: ExtensionAPI) {
 				: f.diff).join("").replace(/\n$/, "");
 		const verb = pl.tool === "catalog_take" ? "Take into" : pl.tool === "catalog_edit" ? "Edit in" : "Apply to";
 		const ok = await ctx.ui.confirm(`${verb} the catalog ${pl.root}: ${what}?`, body);
-		if (!ok) remember(pl, false); // an approval forgets the refused text once its write is done (execute)
-		if (!ok) return { block: true, reason: "the person did not approve this write" };
+		if (!ok) {
+			gate.refuse(pl.token, runDir()); // remembered: the next plan of these files shows what changed since
+			return { block: true, reason: "the person did not approve this write" };
+		}
 		plans.set(event.toolCallId, pl);
 		return undefined;
 	});

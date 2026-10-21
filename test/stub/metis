@@ -19,6 +19,9 @@ for line in sys.stdin:
         f.write(json.dumps({"op": op, "arg": r.get("arg", "")}) + "\n")
     if op == "help":
         out = {"ok": True, "ops": ["formalize", "gate", "show", "state", "text"], "descriptions": {"state": "the domain's current state"}}
+    elif op == "reload":                                # the wire's reload: STUB_UNLOADABLE, the program stays
+        out = ({"ok": False, "findings": ["invalid literal for int() with base 10: '1.'"], "served": llp[0] if llp else None}
+               if os.environ.get("STUB_UNLOADABLE") == "1" else {"ok": True, "path": r.get("arg"), "key": "k", "host": None})
     elif op == "show" and r.get("arg") == "llp":
         out = {"ok": True, "llp": "catalog lamp 1.\n% the stub's candidate"}
     elif op == "show":
