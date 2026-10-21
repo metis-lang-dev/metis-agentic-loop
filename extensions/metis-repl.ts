@@ -193,6 +193,9 @@ export default function (pi: ExtensionAPI) {
 				return null;
 			}
 		})();
+		// a seed is applied under its own name: another would leave the seed pending in this DIR for good (review F2)
+		if (p.what === "served" && seed && !seed.package && p.domain !== seed.name && seedPending(root))
+			throw new Error(`the seed is ${seed.name}: catalog_apply domain=${seed.name} what=served`);
 		if (p.what === "served" && seed?.package) {
 			if (p.domain !== seed.name) throw new Error(`the seed is the package ${seed.name}: catalog_apply domain=${seed.name} what=served`);
 			const from = join(runDir(), "seed");

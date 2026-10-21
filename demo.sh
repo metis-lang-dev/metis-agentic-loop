@@ -45,7 +45,7 @@ Leave pi with ctrl+c twice (or /quit).
 
 EOF
 read -r -p "Press Enter to start pi. " _
-st=0; (cd "$DIR" && "$HERE/loop.sh") || st=$?
+st=0; (cd "$DIR" && METIS_CATALOG="$DIR" "$HERE/loop.sh") || st=$?   # DIR, whatever the shell's METIS_CATALOG says
 after="$(usage)" || after="$before"            # a failed read must not lose the run's status
 "$SDK_PY" -c 'import sys; b, a = map(float, sys.argv[1:3]); print("This run: %.4f USD by the key'"'"'s usage (OpenRouter may add the last calls a minute later)." % (a - b))' "$before" "$after"
 echo "The run's files: $DIR (the catalog it wrote: domains/lamp/; the pi session and records/formalize-calls.jsonl in .metis/)."

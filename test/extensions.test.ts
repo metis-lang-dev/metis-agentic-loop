@@ -253,6 +253,9 @@ test("metis-repl: a seeded run applies the seed first — what=program/extension
 			const r = await p.emit("tool_call", { toolName: "catalog_apply", toolCallId: "q", input }, ui(true));
 			assert.match(r.reason, new RegExp(`a seeded run applies the seed first \\(catalog_apply domain=${input.domain} what=served\\)`));
 		}
+		// the seed is applied under its own name only: another would leave it pending in this DIR for good (review F2)
+		const other = await p.emit("tool_call", { toolName: "catalog_apply", toolCallId: "q", input: { domain: "other", what: "served" } }, ui(true));
+		assert.match(other.reason, /the seed is lamp: catalog_apply domain=lamp what=served/);
 		// once the domain is in the catalog (the seed applied), a change is its diff
 		writeFileSync(join(cat, "domains", "lamp", "lamp.llp"), "catalog lamp 1.\n");
 		writeFileSync(join(cat, "domains", "lamp", "domain.yaml"), "program: lamp.llp\n");
@@ -305,6 +308,7 @@ test("loop.sh: the directory it starts in is the catalog and pi's cwd; its state
 	assert.equal(away.out.cwd, dir);
 	assert.equal(away.out.env.METIS_CATALOG, dir);
 	assert.match(loopIn(dir, ["--scratch", dir]).err, /--scratch is gone: cd DIR && loop\.sh/);
+	assert.match(loopIn(dir, ["--seed", "x.llp", "--scratch", dir]).err, /--scratch is gone/);          // anywhere in the args (review N1)
 });
 
 test("loop.sh --seed: the seed, its name, the task as pi's first message; a DIR is seeded once", () => {

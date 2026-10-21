@@ -48,7 +48,9 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PKGS="$(cd "$HERE/.." && pwd)"                      # the workspace: its .venv, metis-agent (defaults only)
 AGENT="${METIS_AGENT:-$PKGS/metis-agent}"           # the domain agent's checkout
-[ "${1:-}" != --scratch ] || { echo "loop.sh: --scratch is gone: cd DIR && loop.sh (DIR is the catalog; cwd-root s-ddac2cbf)" >&2; exit 2; }
+for a in "$@"; do
+  [ "$a" != --scratch ] || { echo "loop.sh: --scratch is gone: cd DIR && loop.sh (DIR is the catalog; cwd-root s-ddac2cbf)" >&2; exit 2; }
+done
 # the loop SDK's python (metis_loop_sdk: the catalog's root and state, the model adapters)
 SDK_PY="${METIS_LOOP_SDK_PY:-$PKGS/.venv/bin/python}"
 "$SDK_PY" -c "import metis_loop_sdk.models, metis_loop_sdk.catalog" 2>/dev/null || {

@@ -10,7 +10,7 @@
 // loop.sh --seed PKG_DIR makes it: the package whole, its program, included files and host;
 // a world with a host of its own is also measured (domain_ports, domain_episodes).
 //
-// DIR is the catalog, made empty, and the script runs in it, as `cd DIR && loop.sh --seed SEED`
+// DIR is the catalog, made empty (DIR and DIR.into are removed first: give a scratch path), and the script runs in it, as `cd DIR && loop.sh --seed SEED`
 // (cwd-root s-ddac2cbf): the seed copied into DIR/.metis/seed/ with DIR/.metis/seed.json, the
 // records in DIR/.metis/records/; the target catalog is DIR.into beside it (empty); DIR/.metis/
 // also gets seeded.md (the calls and their answers) and seeded.json (what held). Exit 1 when any
